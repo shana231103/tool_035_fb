@@ -21,8 +21,7 @@
         </li>
       </ol>
       <ul class="text-xs mt-3 max-h-32 overflow-auto"><li v-for="task in parsedTasks" :key="task.url" class="py-1 break-all">{{ task.url }}</li></ul>
-      <p class="text-xs text-slate-400 mt-3">Original sources must link directly to your work. Meta states it cannot review material on cloud file hosting services. Local uploads do not replace a public source URL.</p>
-      <p v-if="proofFile" class="text-xs text-slate-400">Local attachment: {{ proofFile.name }} (archival only)</p>
+      <p class="text-xs text-slate-400 mt-3">Original sources must link directly to your work. Meta states it cannot review material on cloud file hosting services.</p>
       <p v-if="blockingError" role="alert" class="text-rose-400 text-sm mt-3">{{ blockingError }}</p>
       <div class="space-y-2 mt-4 pt-3 border-t border-slate-800">
         <label class="flex items-center gap-3 text-xs font-semibold text-indigo-400 cursor-pointer select-none pb-2 border-b border-slate-800 hover:text-indigo-300 transition">
@@ -55,7 +54,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { validateOriginalWorkUrl } from '../utils/urlValidator';
-const props = defineProps({isOpen:Boolean, ownerProfile:Object, originalWorkUrl:String, proofFile:Object, parsedTasks:{type:Array,default:()=>[]}, isSubmitting:Boolean, customExplanation:String});
+const props = defineProps({isOpen:Boolean, ownerProfile:Object, originalWorkUrl:String, parsedTasks:{type:Array,default:()=>[]}, isSubmitting:Boolean, customExplanation:String});
 defineEmits(['confirm','close']);
 const checked = ref([false,false,false,false]);
 const factors = ['I am the named rights owner, and the same owner name is my electronic signature.', 'The original source is public, direct and accurately identifies my work.', 'I reviewed every Facebook target and its infringement of this work.', 'My explanation, contact details and declaration are accurate and made in good faith.'];
