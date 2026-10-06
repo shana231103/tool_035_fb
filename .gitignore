@@ -7,6 +7,7 @@
 # 1. Environment Variables & Secret Credentials
 # ------------------------------------------------------------------------------
 .env
+.env.example
 .env.*
 !.env.example
 !.env.*.example
