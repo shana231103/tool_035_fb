@@ -87,9 +87,13 @@ class ProfileDraft:
             if self.proxy.password is not None:
                 proxy["proxy_password"] = self.proxy.password
         return {"group_id": self.group_id, "name": self.name, "remark": self.marker,
-                "fingerprint_config": {"webrtc": "disabled", "language_switch": "1",
-                                       "languages": ["en-US", "en"]},
-                "user_proxy_config": proxy}
+                "fingerprint_config": {
+                    "webrtc": "disabled",
+                    "language_switch": "0",
+                    "language": ["en-US", "en"],
+                    "page_language_switch": "0",
+                    "page_language": "en-US",
+                }, "user_proxy_config": proxy}
 
 
 def envelope(value: Any) -> dict:

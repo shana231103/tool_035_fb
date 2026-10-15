@@ -1,6 +1,7 @@
 # File: backend/app/infrastructure/automation/adspower_settings.py
 import os
 from pathlib import Path
+from uuid import UUID
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -9,6 +10,7 @@ class AdsPowerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ADSPOWER_", extra="ignore")
     api_base_url: str = "http://127.0.0.1:50325"
     api_key: SecretStr = Field(default_factory=lambda: SecretStr(""), repr=False)
+    provider_binding_id: UUID | None = None
     group_id: str = ""
     max_profile_sessions: int = Field(1, ge=1, le=10)
     api_rps: float = Field(1, gt=0, le=20)
@@ -26,7 +28,7 @@ class AdsPowerSettings(BaseSettings):
     response_limit: int = Field(262144, ge=1024, le=1048576)
     correlation_enabled: bool = False
     correlation_capability_verified: bool = False
-    initialize_identity: bool = False
+    initialize_identity: bool | None = None
     endpoint_mode: str = "SAME_HOST"
     cdp_source_host: str = "127.0.0.1"
     cdp_target_host: str = ""

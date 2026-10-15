@@ -78,10 +78,6 @@ class PlaywrightMetaReporter(IAutomationDriver):
             lease = await self._provider.acquire(BrowserSessionRequest(UUID(params.task_id), UUID(params.attempt_id), proxy))
             page = lease.page
             page.set_default_timeout(self._navigation)
-            if callable(getattr(page, "set_extra_http_headers", None)):
-                header_res = page.set_extra_http_headers({"Accept-Language": "en-US,en;q=0.9"})
-                if asyncio.iscoroutine(header_res):
-                    await header_res
             stage = "navigation"
             await page.goto(S.FORM_URL, timeout=self._navigation, wait_until="domcontentloaded")
             stage = "four-page form"

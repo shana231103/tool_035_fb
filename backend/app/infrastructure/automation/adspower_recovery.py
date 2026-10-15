@@ -1,9 +1,8 @@
 # File: backend/app/infrastructure/automation/adspower_recovery.py
 import asyncio
-from uuid import uuid4
-from app.domain.exceptions.browser_errors import BrowserUnavailable, BrowserOwnershipError
 from app.domain.value_objects.browser_session import BrowserPhase, CleanupState
 from app.domain.value_objects.browser_status import BrowserReadiness, ReadinessState
+from app.infrastructure.automation.adspower_binding_bootstrap import BrowserBindingBootstrap
 from app.infrastructure.automation.adspower_wire import ProfileQuery
 
 
@@ -11,54 +10,35 @@ class BrowserRecovery:
     def __init__(self, client, ledger_factory, identity, budget, correlation, cleanup):
         self.client, self.factory, self.identity = client, ledger_factory, identity
         self.budget, self.correlation, self.cleanup = budget, correlation, cleanup
+        self.binding_bootstrap = BrowserBindingBootstrap(ledger_factory, identity, budget, budget.policy.settings)
         self.failure = None
         self.classified = False
         self.closed = False
 
     async def bootstrap(self, *, maintenance=False):
         settings = self.budget.policy.settings
+        if self.closed:
+            return await self.readiness()
         if not settings.configured():
             self.failure = "BROWSER_NOT_CONFIGURED"
             return await self.readiness()
         try:
-            self.identity.acquire_lock()
-            snapshot = await self.budget.snapshot()
-            fresh = snapshot.binding is None and snapshot.total_ledger_rows == 0
-            if snapshot.binding is None and not fresh:
-                raise BrowserOwnershipError()
-            if not self.identity.path.is_file():
-                if not fresh:
-                    raise BrowserOwnershipError()
-                self.identity.initialize()
-            self.identity.acquire()
-            if snapshot.binding is None:
-                self.identity.bind_provider(self.identity.provider_binding_id or uuid4())
-                await self._persist_binding(self.identity.binding)
-            else:
-                self.identity.bind_provider(snapshot.binding.provider_binding_id)
-                self.identity.verify_binding(snapshot.binding)
-            await self.budget.restore()
+            await self.binding_bootstrap.prepare(maintenance=maintenance)
+            if self.closed:
+                return await self.readiness()
             if not maintenance:
                 await self.client.list_profiles(ProfileQuery(settings.group_id, limit=1))
-            self.classified = True
+            self.classified = not self.closed
             self.failure = None
+        except asyncio.CancelledError:
+            self.classified = self.budget.validated = False
+            self.identity.release()
+            raise
         except Exception as error:
+            self.classified = self.budget.validated = False
             self.failure = getattr(error, "code", "BROWSER_LEDGER_UNCERTAIN")
+            self.identity.release()
         return await self.readiness()
-
-    async def _persist_binding(self, binding):
-        try:
-            async with self.factory() as uow:
-                await uow.browser_sessions.initialize_binding_if_empty(binding)
-                await uow.commit()
-        except Exception:
-            # A new UoW observes durable truth only after the failed context has exited.
-            snapshot = await self.budget.snapshot()
-            if snapshot.binding is None:
-                if snapshot.total_ledger_rows:
-                    raise BrowserOwnershipError() from None
-                raise BrowserUnavailable("BROWSER_LEDGER_UNCERTAIN") from None
-            self.identity.verify_binding(snapshot.binding)
 
     async def readiness(self):
         limit = self.budget.policy.settings.max_profile_sessions

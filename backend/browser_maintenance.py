@@ -13,8 +13,7 @@ class MaintenanceParser(argparse.ArgumentParser):
 def parser():
     result = MaintenanceParser(description=__doc__)
     modes = result.add_mutually_exclusive_group(required=True)
-    modes.add_argument("--initialize", action="store_true",
-        help="Initialize automatically on first run, or verify an existing identity, without provider requests.")
+    modes.add_argument("--initialize", action="store_true", help="Create identity only for an empty browser ledger.")
     modes.add_argument("--confirm-external", action="store_true", help="Record verified external cleanup offline.")
     result.add_argument("--operation-id", type=UUID)
     result.add_argument("--expected-version", type=int)
