@@ -49,6 +49,8 @@ class MailboxRegistry:
             self.records.pop(key)
 
     def reserve(self, connection_id):
+        if connection_id in self.records:
+            raise MailboxError("BUSY")
         self.prune(reserve=True)
         if len(self.records) >= self.max_records:
             raise MailboxError("BUSY")
@@ -102,7 +104,9 @@ class MailboxRegistry:
         return self.binding(record)
 
     def revoke(self, connection_id):
-        record = self.get(connection_id)
+        record = self.records.get(connection_id)
+        if record is None or record.status == "disconnecting":
+            return
         record.cleanup_complete = False
         record.generation += 1
         record.status, record.reason = "disconnecting", "DISCONNECTED"

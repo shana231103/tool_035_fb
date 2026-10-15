@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { jobsApi } from '../services/api.js';
 import { wsService } from '../services/websocket.js';
 import { taskStats, safeTaskProgress, preserveReceipts } from '../utils/jobProgress.js';
+import { browserApi, browserUnavailable } from '../services/browserStatus.js';
 export { taskStats, safeTaskProgress } from '../utils/jobProgress.js';
 
 const errorText = error => error.response?.data?.detail || error.message;
@@ -14,7 +15,7 @@ const mailboxStartErrors = {
 };
 const channels = ['latest', 'history', 'detail'];
 
-export function createJobStoreOptions(api = jobsApi, socket = wsService) {
+export function createJobStoreOptions(api = jobsApi, socket = wsService, browser = null) {
   return {
     state: () => ({
       jobs: [], historyJobs: [], historyOffset: 0, pageSize: 50, historyHasMore: false,
@@ -111,6 +112,10 @@ export function createJobStoreOptions(api = jobsApi, socket = wsService) {
         if (this.retryingJobId === jobId) return;
         this.error = null;
         try {
+          if (browser && !(await browser.status()).can_start) {
+            this.error = browserUnavailable;
+            return false;
+          }
           await api.startJob(jobId);
           this.addLog(`Triggered START for Job ID: ${jobId}`);
           await this.resyncVisibleState();
@@ -181,4 +186,4 @@ export function createJobStoreOptions(api = jobsApi, socket = wsService) {
   };
 }
 
-export const useJobStore = defineStore('jobs', createJobStoreOptions());
+export const useJobStore = defineStore('jobs', createJobStoreOptions(jobsApi, wsService, browserApi));

@@ -12,15 +12,11 @@ class ManageMailboxConnectionUseCase:
         self._connections = connections
         self._sessions = sessions
 
-    async def begin_login(self, account_hint=None):
-        return await self._connections.begin_login(account_hint)
+    async def reserve_connection(self):
+        return await self._connections.reserve_connection()
 
-    async def login_status(self, login_id):
-        return await self._connections.login_status(login_id)
-
-    async def cancel_login(self, login_id):
-        # Login IDs are connection IDs; a completed login can already own attempts.
-        await finish_owned(self._revoke(login_id, self._connections.cancel_login, asyncio.current_task()))
+    async def connect(self, connection_id, credentials):
+        return await self._connections.connect(connection_id, credentials)
 
     async def list_connections(self):
         return await self._connections.list_connections()
@@ -34,6 +30,7 @@ class ManageMailboxConnectionUseCase:
 
     async def disconnect(self, connection_id):
         # Invalidate the admission fence before canceling auth/cache operations.
+        self._connections.revoke(connection_id)
         await finish_owned(self._revoke(connection_id, self._connections.disconnect, asyncio.current_task()))
 
     async def _revoke(self, connection_id, revoke, caller):

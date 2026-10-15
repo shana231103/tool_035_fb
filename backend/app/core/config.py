@@ -1,9 +1,33 @@
 # File: backend/app/core/config.py
 import os
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import AliasChoices, Field, field_validator
 from urllib.parse import urlsplit
+
+
+def _get_default_database_url() -> str:
+    custom = os.getenv("DATABASE_URL")
+    if custom:
+        return custom
+    if getattr(sys, "frozen", False):
+        app_dir = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "ToolReportFB"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        db_file = (app_dir / "report_fb.db").as_posix()
+        return f"sqlite+aiosqlite:///{db_file}"
+    return "sqlite+aiosqlite:///./report_fb.db"
+
+
+def _get_default_storage_dir() -> str:
+    custom = os.getenv("STORAGE_DIR")
+    if custom:
+        return custom
+    if getattr(sys, "frozen", False):
+        app_dir = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "ToolReportFB" / "storage"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        return str(app_dir)
+    return "./storage"
 
 
 class Settings(BaseSettings):
@@ -12,26 +36,23 @@ class Settings(BaseSettings):
     debug: bool = True
 
     # Database
-    database_url: str = os.getenv(
-        "DATABASE_URL",
-        "sqlite+aiosqlite:///./report_fb.db",
-    )
+    database_url: str = Field(default_factory=_get_default_database_url)
     database_echo: bool = False
 
     # Storage paths
-    base_storage_dir: str = os.getenv("STORAGE_DIR", "./storage")
+    base_storage_dir: str = Field(default_factory=_get_default_storage_dir)
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000/static")
 
     # Automation Engine
-    headless_browser: bool = True
+    headless_browser: bool = False
     navigation_timeout_ms: int = Field(45000, ge=1000)
     receipt_timeout_ms: int = Field(30000, ge=1000)
-    email_verification_timeout: int = Field(600, ge=1)
+    email_verification_timeout: int = Field(900, ge=1)
     email_slot_timeout: int = Field(1800, ge=1)
     max_code_attempts: int = Field(5, ge=1, le=10)
     max_code_resends: int = Field(2, ge=0, le=5)
     max_browser_contexts: int = Field(5, ge=1, le=10)
-    anticaptcha_api_key: str = ""
+    anticaptcha_api_key: str = "a31e63ea8e8e9055927db54467a55da9"
     anticaptcha_timeout: float = Field(120.0, ge=10, le=600)
 
     # Worker queue defaults
@@ -64,7 +85,6 @@ class Settings(BaseSettings):
     ws_max_payload_bytes: int = Field(65536, ge=1, le=65536)
     ws_send_timeout: float = Field(2.0, gt=0, le=10)
     ws_close_timeout: float = Field(1.0, gt=0, le=5)
-    microsoft_client_id: str = ""
     microsoft_authority: str = "https://login.microsoftonline.com/common"
     microsoft_http_timeout: float = Field(10, ge=1, le=10)
     graph_request_budget: int = Field(120, ge=1, le=500)
@@ -112,6 +132,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=(
+            Path(sys.executable).resolve().parent / ".env",
             Path(__file__).resolve().parents[3] / ".env",
             Path(__file__).resolve().parents[2] / ".env",
         ),

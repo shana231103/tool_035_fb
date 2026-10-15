@@ -11,6 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from app.infrastructure.persistence.database import Base
+from app.infrastructure.persistence.browser_session_model import BrowserRuntimeBindingModel, BrowserSessionModel
 
 
 def _now() -> datetime:

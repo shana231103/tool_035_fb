@@ -1,6 +1,7 @@
 # File: backend/app/application/unit_of_work.py
 from abc import ABC, abstractmethod
 from typing import Any
+from app.domain.ports.browser_ledger import IBrowserSessionLedger
 from app.domain.ports.repositories import (
     IBatchJobRepository,
     IOwnerProfileRepository,
@@ -14,6 +15,7 @@ class IUnitOfWork(ABC):
     tasks: IReportTaskRepository
     proxies: IProxyRepository
     profiles: IOwnerProfileRepository
+    browser_sessions: IBrowserSessionLedger
 
     async def __aenter__(self) -> "IUnitOfWork":
         return self

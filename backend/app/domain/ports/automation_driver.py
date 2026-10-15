@@ -1,11 +1,35 @@
 # File: backend/app/domain/ports/automation_driver.py
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from uuid import UUID
 from typing import Optional, Awaitable, Callable
 from app.domain.value_objects.enums import TaskStatus
 from app.domain.value_objects.mailbox_verification import MailboxBinding
 
 ProgressCallback = Callable[[TaskStatus, dict], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class AutomationReceipt:
+    task_id: UUID
+    attempt_id: UUID
+    receipt_text: str
+    case_number: str | None = None
+    observed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def __post_init__(self):
+        object.__setattr__(self, "task_id", UUID(str(self.task_id)))
+        object.__setattr__(self, "attempt_id", UUID(str(self.attempt_id)))
+        if not self.receipt_text.strip() or len(self.receipt_text.encode("utf-8")) > 16384:
+            raise ValueError("Invalid receipt evidence.")
+        if self.case_number is not None and len(self.case_number) > 128:
+            raise ValueError("Invalid receipt case number.")
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() != timezone.utc.utcoffset(self.observed_at):
+            raise ValueError("Receipt observation requires UTC.")
+
+
+ReceiptCallback = Callable[[AutomationReceipt], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -43,7 +67,8 @@ class AutomationResult:
 class IAutomationDriver(ABC):
     @abstractmethod
     async def submit_copyright_report(
-        self, params: AutomationSubmissionParams, progress: ProgressCallback | None = None
+        self, params: AutomationSubmissionParams, progress: ProgressCallback | None = None,
+        *, on_receipt: ReceiptCallback | None = None
     ) -> AutomationResult:
         """Automates the submission of form 1523801815366035 and returns case/screenshot."""
-        pass
+        raise NotImplementedError

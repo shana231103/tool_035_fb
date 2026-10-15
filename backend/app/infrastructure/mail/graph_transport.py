@@ -143,10 +143,14 @@ class GraphTransport:
             raise MailboxError("THROTTLED")
         await asyncio.sleep(seconds)
 
-    async def probe(self, connection_id: str) -> dict:
-        deadline = time.monotonic() + 30
-        budget = ReadBudget(10, 5, 1, deadline)
-        async with asyncio.timeout(30):
+    async def probe(self, connection_id: str, *, deadline: float | None = None,
+                    budget: ReadBudget | None = None) -> dict:
+        deadline = min(deadline, time.monotonic() + 30) if deadline is not None else time.monotonic() + 30
+        budget = budget or ReadBudget(10, 5, 1, deadline)
+        remaining = min(deadline, budget.deadline) - budget.clock()
+        if remaining <= 0:
+            raise MailboxError("READ_BUDGET_EXHAUSTED")
+        async with asyncio.timeout(remaining):
             async with self._synchronization.hold(connection_id):
                 identity = await self._request(connection_id, GRAPH_ROOT + "/me?$select=id,mail,userPrincipalName", deadline, budget)
                 # Mail.ReadBasic cannot retrieve body; the successful body projection proves mailbox access.

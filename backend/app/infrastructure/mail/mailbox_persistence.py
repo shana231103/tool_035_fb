@@ -17,7 +17,7 @@ class MailboxPersistence:
         self.filepath = os.path.abspath(filepath)
         os.makedirs(os.path.dirname(self.filepath), exist_ok=True)
 
-    def load_all(self) -> Dict[str, Dict[str, Any]]:
+    def _load_raw(self) -> Dict[str, Any]:
         if not os.path.isfile(self.filepath):
             return {}
         try:
@@ -26,15 +26,53 @@ class MailboxPersistence:
                 if not content:
                     return {}
                 data = json.loads(content)
-                if isinstance(data, dict) and "connections" in data:
-                    return data["connections"]
                 return data if isinstance(data, dict) else {}
         except Exception as error:
-            logger.warning("Failed to read mailbox cache file %s: %s", self.filepath, error)
+            logger.warning("Failed to read raw mailbox cache file %s: %s", self.filepath, error)
             return {}
 
-    def _write_all(self, connections: Dict[str, Dict[str, Any]]) -> None:
-        payload = {"version": 1, "updated_at": time.time(), "connections": connections}
+    def load_all(self) -> Dict[str, Dict[str, Any]]:
+        raw = self._load_raw()
+        if "connections" in raw and isinstance(raw["connections"], dict):
+            return raw["connections"]
+        return raw
+
+    def load_client_id(self) -> str:
+        raw = self._load_raw()
+        client_id = str(raw.get("client_id", "")).strip()
+        if client_id:
+            return client_id
+        # Fallback: extract client_id from existing token cache in connections
+        connections = raw.get("connections", {})
+        if isinstance(connections, dict):
+            for item in connections.values():
+                if isinstance(item, dict):
+                    token_cache_str = item.get("token_cache", "")
+                    if token_cache_str and '"client_id":' in token_cache_str:
+                        try:
+                            tc = json.loads(token_cache_str)
+                            app_meta = tc.get("AppMetadata", {})
+                            for val in app_meta.values():
+                                cid = val.get("client_id")
+                                if cid:
+                                    return str(cid).strip()
+                        except Exception:
+                            pass
+        return ""
+
+    def save_client_id(self, client_id: str) -> None:
+        connections = self.load_all()
+        self._write_all(connections, client_id=client_id.strip())
+
+    def _write_all(self, connections: Dict[str, Dict[str, Any]], client_id: Optional[str] = None) -> None:
+        raw = self._load_raw()
+        saved_client_id = client_id if client_id is not None else raw.get("client_id", "")
+        payload = {
+            "version": 1,
+            "updated_at": time.time(),
+            "client_id": saved_client_id,
+            "connections": connections,
+        }
         dir_name = os.path.dirname(self.filepath)
         os.makedirs(dir_name, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix="mailbox_cache_", suffix=".tmp")

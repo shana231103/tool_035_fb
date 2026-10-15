@@ -7,6 +7,7 @@ from app.domain.entities.owner_profile import OwnerProfile
 from app.domain.entities.report_task import ReportTask
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.domain.value_objects.enums import JobStatus, TaskStatus
+from app.application.task_finalization import TaskFinalizer
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ class BatchJobWorker:
     """One shared executor, context budget and email lease registry per queue."""
 
     def __init__(self, uow_factory, executor, progress, verification, max_contexts,
-                 email_slot_timeout, notifier):
+                 email_slot_timeout, notifier, browser_control=None):
         self._factory = uow_factory
         self._executor = executor
         self._progress = progress
@@ -24,6 +25,8 @@ class BatchJobWorker:
         self._emails: dict[str, list] = {}
         self._capacity = asyncio.Semaphore(max_contexts)
         self._email_timeout = email_slot_timeout
+        self._browser = browser_control
+        self._finalizer = TaskFinalizer(uow_factory, progress)
 
     async def notify_job(self, job: BatchJob) -> None:
         try:
@@ -100,6 +103,12 @@ class BatchJobWorker:
                 if profile.email.value.strip().casefold() != email:
                     raise MailboxError("STALE")
                 result = await self._executor.execute(task, profile, proxy)
+                if task.status == TaskStatus.QUEUED and self._browser:
+                    try:
+                        await self._browser.assert_task_retriable(task.id)
+                    except ValueError:
+                        task.mark_failed("Browser cleanup requires reconciliation before retrying.", False)
+                        await self._finalizer.finalize(task)
                 if proxy and (result.retryable or task.status == TaskStatus.SUBMITTED):
                     if result.retryable:
                         proxy.mark_failed()
@@ -112,12 +121,12 @@ class BatchJobWorker:
             if task.status not in (TaskStatus.SUBMITTED, TaskStatus.FAILED, TaskStatus.CANCELLED):
                 task.cancel()
                 task.verification = {}
-                await self._progress.save(task)
+                await self._finalizer.finalize(task)
             raise
         except Exception:
             task.mark_failed("Worker failed or email slot timed out before submission.", False)
             task.verification = {}
-            await self._progress.save(task)
+            await self._finalizer.finalize(task)
         finally:
             try:
                 await self._verification.close(str(task.id))

@@ -18,7 +18,8 @@ class MicrosoftAuth:
     """One in-memory MSAL cache and serialized SDK calls per connection."""
 
     def __init__(self, client_id: str, authority: str, http_timeout: float = 10, *,
-                 app_factory=None, max_workers: int = 2, on_cache_changed=None):
+                 app_factory=None, max_workers: int = 2, on_cache_changed=None,
+                 on_client_id_changed=None):
         parsed = urlsplit(authority)
         if (parsed.scheme != "https" or parsed.hostname != "login.microsoftonline.com"
                 or parsed.username or parsed.port not in (None, 443) or parsed.query or parsed.fragment):
@@ -29,9 +30,10 @@ class MicrosoftAuth:
         self.factory = app_factory or msal.PublicClientApplication
         self.max_workers, self.states, self.closed = max_workers, {}, False
         self.on_cache_changed = on_cache_changed
+        self.on_client_id_changed = on_client_id_changed
 
     def configure_client_id(self, client_id: str) -> None:
-        """Change the public application ID only when no auth work/session owns it."""
+        """Change the public application ID only when no active auth worker owns it."""
         try:
             normalized = str(UUID(client_id))
         except (ValueError, TypeError, AttributeError):
@@ -40,9 +42,19 @@ class MicrosoftAuth:
             raise MailboxError("DISCONNECTED")
         if normalized == self.client_id:
             return
-        if self.states:
+        if any(s.worker is not None and not s.worker.done() for s in self.states.values()):
             raise MailboxError("BUSY")
         self.client_id = normalized
+        for state in self.states.values():
+            if state.active:
+                state.app = self.factory(self.client_id, authority=self.authority,
+                                         token_cache=state.cache, timeout=self.http_timeout,
+                                         enable_pii_log=False)
+        if self.on_client_id_changed:
+            try:
+                self.on_client_id_changed(normalized)
+            except Exception:
+                pass
 
     def restore_state(self, connection_id: str, account: dict, serialized_cache: str) -> None:
         if self.closed:

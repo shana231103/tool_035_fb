@@ -7,6 +7,7 @@ from app.infrastructure.persistence.repositories.postgres_job_repo import Postgr
 from app.infrastructure.persistence.repositories.postgres_profile_repo import PostgresProfileRepository
 from app.infrastructure.persistence.repositories.postgres_proxy_repo import PostgresProxyRepository
 from app.infrastructure.persistence.repositories.postgres_task_repo import PostgresTaskRepository
+from app.infrastructure.persistence.repositories.browser_session_repo import BrowserSessionRepository
 
 
 class SqlAlchemyUnitOfWork(IUnitOfWork):
@@ -20,6 +21,7 @@ class SqlAlchemyUnitOfWork(IUnitOfWork):
         self.tasks = PostgresTaskRepository(self._session)
         self.proxies = PostgresProxyRepository(self._session)
         self.profiles = PostgresProfileRepository(self._session)
+        self.browser_sessions = BrowserSessionRepository(self._session)
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:

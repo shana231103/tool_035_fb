@@ -7,12 +7,15 @@ from typing import Callable
 from app.application.unit_of_work import IUnitOfWork
 from app.application.task_progress import ProgressStore
 from app.application.mailbox_sessions import MailboxAttemptSessions
+from app.application.browser_receipts import BrowserReceiptPersister
+from app.application.task_finalization import TaskFinalizer
+from app.domain.ports.browser_sessions import IBrowserControl
 from app.domain.ports.mailbox_code_reader import IMailboxConnections
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.domain.entities.owner_profile import OwnerProfile
 from app.domain.entities.proxy_item import ProxyItem
 from app.domain.entities.report_task import ReportTask
-from app.domain.ports.automation_driver import AutomationResult, AutomationSubmissionParams, IAutomationDriver
+from app.domain.ports.automation_driver import AutomationResult, AutomationSubmissionParams, AutomationReceipt, IAutomationDriver
 from app.domain.ports.email_verification import IVerificationBroker
 from app.domain.ports.notifier import IEventNotifier
 from app.domain.value_objects.enums import TaskStatus, PlatformType
@@ -25,12 +28,18 @@ class ExecuteReportTaskUseCase:
     def __init__(self, automation_driver: IAutomationDriver, notifier: IEventNotifier,
                  uow_factory: Callable[[], IUnitOfWork], verification: IVerificationBroker,
                  connections: IMailboxConnections | None = None,
-                 sessions: MailboxAttemptSessions | None = None):
+                 sessions: MailboxAttemptSessions | None = None,
+                 browser_control: IBrowserControl | None = None,
+                 receipt_persister: BrowserReceiptPersister | None = None,
+                 task_finalizer: TaskFinalizer | None = None):
         self._driver = automation_driver
         self._progress = ProgressStore(uow_factory, notifier)
         self._verification = verification
         self._connections = connections
         self._sessions = sessions or MailboxAttemptSessions(connections)
+        self._browser = browser_control
+        self._receipts = receipt_persister or BrowserReceiptPersister(uow_factory)
+        self._finalizer = task_finalizer or TaskFinalizer(uow_factory, self._progress)
 
     async def execute(self, task: ReportTask, profile: OwnerProfile,
                       proxy: ProxyItem | None = None) -> AutomationResult:
@@ -42,6 +51,9 @@ class ExecuteReportTaskUseCase:
             raise MailboxError("AUTH_REQUIRED")
         binding = await self._connections.resolve_binding(profile.email.value)
         await self._connections.assert_ready(binding)
+        if self._browser:
+            await self._browser.assert_task_retriable(task.id)
+        previous_attempt = task.attempt_id
         task.mark_running(proxy_id=proxy.id if proxy else None)
         task.attempt_id = str(uuid4())
         task.verification = {}
@@ -81,15 +93,23 @@ class ExecuteReportTaskUseCase:
             infringing_account=task.infringing_account,
             mailbox_binding=binding,
         )
+        async def on_receipt(receipt: AutomationReceipt) -> None:
+            await self._receipts.persist(task, receipt)
+            await self._progress.notify(task)
+
         try:
             self._sessions.register(str(task.id), task.attempt_id, binding, asyncio.current_task())
             await self._sessions.assert_current(str(task.id), task.attempt_id, binding)
-            await self._progress.save(task)
-            result = await self._driver.submit_copyright_report(params, progress)
+            await self._finalizer.begin_attempt(task, previous_attempt)
+            result = await self._driver.submit_copyright_report(params, progress, on_receipt=on_receipt)
             task.verification = {}
             if result.success and result.receipt_text:
-                task.mark_submitted(result.case_number, result.screenshot_path)
-                task.receipt_text = result.receipt_text
+                await self._receipts.persist(task, AutomationReceipt(task.id, task.attempt_id,
+                    result.receipt_text, result.case_number))
+                task.screenshot_path = result.screenshot_path
+            elif task.status == TaskStatus.SUBMITTED:
+                result = AutomationResult(True, case_number=task.meta_case_number,
+                    screenshot_path=task.screenshot_path, receipt_text=task.receipt_text)
             elif result.needs_review or task.status == TaskStatus.SUBMITTING:
                 task.status = TaskStatus.NEEDS_REVIEW
                 task.error_message = (
@@ -98,9 +118,15 @@ class ExecuteReportTaskUseCase:
                     else "Submission outcome unconfirmed. Reconcile before retrying."
                 )
             else:
+                retryable = result.retryable
+                if retryable and self._browser:
+                    try:
+                        await self._browser.assert_task_retriable(task.id)
+                    except ValueError:
+                        retryable = False
                 task.mark_failed(result.error_message or "Submission failed before receipt.",
-                                 retryable=result.retryable)
-            await self._progress.save(task)
+                                 retryable=retryable)
+            await self._finalizer.finalize(task)
             return result
         except asyncio.CancelledError:
             reason = self._sessions.cancellation_reason(str(task.id), task.attempt_id)
@@ -109,12 +135,12 @@ class ExecuteReportTaskUseCase:
             else:
                 task.cancel()
             task.verification = {}
-            await self._progress.save(task)
+            await self._finalizer.finalize(task)
             raise
         except Exception:
             task.mark_failed("Report execution interrupted; inspect task before retrying.", False)
             task.verification = {}
-            await self._progress.save(task)
+            await self._finalizer.finalize(task)
             return AutomationResult(False, needs_review=task.status == TaskStatus.NEEDS_REVIEW)
         finally:
             try:

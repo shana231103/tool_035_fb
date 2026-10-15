@@ -1,4 +1,3 @@
-"""Safe browser setup diagnostics; provider errors may contain private proxy data."""
 import asyncio
 import sys
 
@@ -17,8 +16,9 @@ def assert_supported_browser_loop() -> None:
 def browser_failure_reason(error: Exception) -> str:
     if isinstance(error, BrowserRuntimeError):
         return error.reason if error.reason == "BROWSER_EVENT_LOOP_UNSUPPORTED" else "BROWSER_CONTEXT_FAILED"
-    if "Executable doesn't exist" in str(error):
-        return "BROWSER_NOT_INSTALLED"
+    if getattr(error, "code", None):
+        from app.domain.exceptions.browser_errors import safe_browser_reason
+        return safe_browser_reason(error.code)
     return "BROWSER_CONTEXT_FAILED"
 
 
@@ -26,6 +26,4 @@ def browser_failure_message(error: Exception) -> str:
     reason = browser_failure_reason(error)
     if reason == "BROWSER_EVENT_LOOP_UNSUPPORTED":
         return "Browser cannot start with this Windows backend runtime. Restart using backend/run_server.py, then retry the failed task."
-    if reason == "BROWSER_NOT_INSTALLED":
-        return "The automation browser is not installed. Run python -m playwright install chromium on the backend host, then retry the failed task."
-    return "Browser could not create a report session. Check browser and proxy setup, then retry the failed task."
+    return f"Browser report session unavailable ({reason}). Check browser readiness before retrying."

@@ -1,6 +1,7 @@
 <!-- File: frontend/src/views/JobsView.vue -->
 <template>
   <div class="space-y-6">
+    <BrowserReadinessPanel />
     <div class="flex items-center justify-between pb-4 border-b border-slate-800">
       <div>
         <h2 class="text-2xl font-bold text-white">Batch Jobs History</h2>
@@ -88,6 +89,7 @@
 import { onMounted } from 'vue';
 import { useRouter } from "vue-router";
 import { useJobStore } from "../stores/jobStore";
+import BrowserReadinessPanel from '../components/BrowserReadinessPanel.vue';
 
 const router = useRouter();
 const jobStore = useJobStore();

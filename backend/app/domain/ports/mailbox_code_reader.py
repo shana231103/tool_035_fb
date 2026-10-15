@@ -1,23 +1,24 @@
 # File: backend/app/domain/ports/mailbox_code_reader.py
 from abc import ABC, abstractmethod
 from app.domain.value_objects.mailbox_verification import (
-    MailboxBinding, MailboxMapping, DeviceLoginPrompt, MailboxConnectionView,
+    MailboxBinding, MailboxMapping, MailboxConnectionView,
     ReadBudget, MailBaseline, SendEpoch, CandidatePage, MessageRef, CodeCandidate,
     PreparedSend,
 )
+from app.domain.value_objects.mailbox_credentials import MailboxCredentials, MailboxConnectReservation
 
 
 class IMailboxConnections(ABC):
     @abstractmethod
-    async def begin_login(self, account_hint: str | None) -> DeviceLoginPrompt:
+    async def reserve_connection(self) -> MailboxConnectReservation:
         raise NotImplementedError
 
     @abstractmethod
-    async def login_status(self, login_id: str) -> MailboxConnectionView:
+    async def connect(self, connection_id: str, credentials: MailboxCredentials) -> MailboxConnectionView:
         raise NotImplementedError
 
     @abstractmethod
-    async def cancel_login(self, login_id: str) -> None:
+    def revoke(self, connection_id: str) -> None:
         raise NotImplementedError
 
     @abstractmethod

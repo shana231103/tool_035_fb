@@ -1,5 +1,6 @@
 // File: frontend/src/services/api.js
 import axios from "axios";
+import { mailboxReason } from './mailboxConnect.js';
 
 const apiClient = axios.create({
   baseURL: "/api/v1",
@@ -89,15 +90,29 @@ export const verificationApi = {
   async resend(id, data) { return (await apiClient.post(`/tasks/${id}/verification/resend`, data)).data; },
 };
 
-export const mailboxApi = {
-  async configuration() { return (await apiClient.get('/mailbox-connections/configuration')).data; },
-  async configure(clientId) { return (await apiClient.put('/mailbox-connections/configuration', {client_id:clientId})).data; },
-  async list() { return (await apiClient.get('/mailbox-connections')).data; },
-  async login(data = {}) { return (await apiClient.post('/mailbox-connections/login', data)).data; },
-  async loginStatus(id) { return (await apiClient.get(`/mailbox-connections/logins/${encodeURIComponent(id)}`)).data; },
-  async cancelLogin(id) { await apiClient.delete(`/mailbox-connections/logins/${encodeURIComponent(id)}`); },
-  async map(id, data) { return (await apiClient.put(`/mailbox-connections/${encodeURIComponent(id)}/mapping`, data)).data; },
-  async disconnect(id) { await apiClient.delete(`/mailbox-connections/${encodeURIComponent(id)}`); },
-};
+export const createMailboxApi = (client) => ({
+  async capabilities() { return (await client.get('/mailbox-connections/capabilities')).data; },
+  async reserve() { return (await client.post('/mailbox-connections/reservations', {}, {timeout:10000})).data; },
+  async connect(id, credentials, signal) {
+    const data = {connection_id:id, credentials};
+    credentials = '';
+    let response;
+    try {
+      response = await client.post('/mailbox-connections/connect', data, {signal, timeout:45000});
+      return response.data;
+    } catch (error) {
+      const reason = mailboxReason(error);
+      if (error.config) error.config.data = '';
+      throw new Error(reason);
+    } finally {
+      data.credentials = '';
+      if (response?.config) response.config.data = '';
+    }
+  },
+  async list() { return (await client.get('/mailbox-connections')).data; },
+  async map(id, data) { return (await client.put(`/mailbox-connections/${encodeURIComponent(id)}/mapping`, data)).data; },
+  async disconnect(id) { await client.delete(`/mailbox-connections/${encodeURIComponent(id)}`); },
+});
+export const mailboxApi = createMailboxApi(apiClient);
 
 export default apiClient;

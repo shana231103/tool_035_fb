@@ -3,25 +3,40 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from app.domain.value_objects.mailbox_verification import MailboxConnectionView
 
 
-class BeginMailboxLoginDTO(BaseModel):
+class ReserveMailboxDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    account_hint: str | None = Field(None, max_length=254)
 
 
-class MailboxConfigurationDTO(BaseModel):
-    login_configured: bool
-    client_id: str
+class MailboxCapabilitiesDTO(BaseModel):
+    credential_format: str
     template_version: str
     template_label: str
 
 
-class ConfigureMailboxClientDTO(BaseModel):
+class ConnectMailboxDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    client_id: UUID
+    connection_id: UUID
+    credentials: SecretStr = Field(repr=False)
+
+    @field_validator("credentials")
+    @classmethod
+    def bounded_credentials(cls, value):
+        try:
+            valid = 0 < len(value.get_secret_value().encode("utf-8")) <= 16384
+        except UnicodeError:
+            valid = False
+        if not valid:
+            raise ValueError("Invalid credentials.")
+        return value
+
+
+class MailboxReservationDTO(BaseModel):
+    id: str
+    expires_at: datetime
 
 
 class MailboxMappingDTO(BaseModel):
@@ -44,11 +59,3 @@ class MailboxConnectionDTO(BaseModel):
     @classmethod
     def from_view(cls, view: MailboxConnectionView):
         return cls(**asdict(view))
-
-
-class DeviceLoginPromptDTO(BaseModel):
-    login_id: str
-    verification_uri: str
-    user_code: str = Field(repr=False)
-    expires_at: datetime
-    interval_seconds: int

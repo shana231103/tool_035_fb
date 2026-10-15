@@ -1,4 +1,7 @@
 # File: backend/app/infrastructure/automation/copyright_pages.py
+import asyncio
+import random
+
 from app.infrastructure.automation.form_selectors import MetaFormSelectors as S, FormContractError
 from app.infrastructure.automation.form_diagnostics import normalize_stage
 from playwright.async_api import Page, Locator, TimeoutError as PlaywrightTimeout
@@ -8,6 +11,10 @@ from app.domain.ports.automation_driver import AutomationSubmissionParams
 class CopyrightPages:
     def __init__(self, page: Page, timeout_ms: int = 45000):
         self.page, self.timeout, self.stage = page, timeout_ms, "prepare"
+
+    async def _pause(self) -> None:
+        """Space form interactions with a fresh random delay of 75–300 ms."""
+        await asyncio.sleep(random.uniform(0.075, 0.300))
 
     def fail(self, reason: str) -> None:
         raise FormContractError("Required form contract was not satisfied.", stage=self.stage, reason=reason) from None
@@ -41,6 +48,7 @@ class CopyrightPages:
         button = await self.required(self.page.get_by_role("button", name="Next", exact=True), f"page{page_number}_next")
         await button.click()
         await self.required(marker, f"page{page_number}_transition")
+        await self._pause()
 
     async def fill(self, label: str, value: str, stage="field") -> None:
         self.stage = normalize_stage(stage)
@@ -54,12 +62,14 @@ class CopyrightPages:
         expected = value.replace("\r\n", "\n").replace("\r", "\n")
         if actual != expected:
             self.fail("NOT_RETAINED")
+        await self._pause()
 
     async def check(self, locator: Locator, stage: str) -> Locator:
         control = await self.required(locator, stage)
         await control.check()
         if not await control.is_checked():
             self.fail("NOT_RETAINED")
+        await self._pause()
         return control
 
     async def prepare(self, params: AutomationSubmissionParams) -> None:
@@ -73,12 +83,14 @@ class CopyrightPages:
         # Live page 3 exposes a named listbox with exact role=option children.
         region = await self.required(self.page.get_by_role("combobox"), "jurisdiction_open")
         await region.click()
+        await self._pause()
         options = await self.required(self.page.get_by_role("listbox", name=S.JURISDICTION, exact=True), "jurisdiction_list")
         option = await self.required(options.get_by_role("option", name=params.rights_jurisdiction, exact=True), "jurisdiction_option")
         await option.click()
         self.stage = "jurisdiction_retention"
         if (await region.inner_text()).strip() != params.rights_jurisdiction:
             self.fail("NOT_RETAINED")
+        await self._pause()
         role = await self.check(self.page.get_by_role("radio", name=S.OWNER_ROLE, exact=True), "owner_role")
         await self.fill(S.OWNER_NAME, params.owner_name, "owner_name")
         self.stage = "owner_role"

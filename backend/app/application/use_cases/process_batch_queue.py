@@ -6,11 +6,13 @@ from app.application.unit_of_work import IUnitOfWork
 from app.application.task_progress import ProgressStore
 from app.application.batch_job_worker import BatchJobWorker
 from app.application.mailbox_sessions import MailboxAttemptSessions
+from app.application.queue_admission import eligible_failed_tasks
 from app.domain.ports.mailbox_code_reader import IMailboxConnections
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.application.use_cases.execute_report_task import ExecuteReportTaskUseCase
 from app.domain.exceptions.domain_exceptions import EntityNotFoundError
 from app.domain.ports.automation_driver import IAutomationDriver
+from app.domain.ports.browser_sessions import IBrowserControl
 from app.domain.ports.notifier import IEventNotifier
 from app.domain.ports.email_verification import IVerificationBroker
 from app.domain.value_objects.enums import JobStatus, TaskStatus, PlatformType
@@ -23,20 +25,23 @@ class ProcessBatchQueueUseCase:
                  notifier: IEventNotifier, verification: IVerificationBroker,
                  max_contexts: int = 5, email_slot_timeout: float = 1800,
                  connections: IMailboxConnections | None = None,
-                 sessions: MailboxAttemptSessions | None = None):
+                 sessions: MailboxAttemptSessions | None = None,
+                 browser_control: IBrowserControl | None = None):
         self._factory = uow_factory
         self._connections = connections
+        self._browser = browser_control
         executor = ExecuteReportTaskUseCase(automation_driver, notifier, uow_factory,
-                                           verification, connections, sessions)
+                                           verification, connections, sessions, browser_control)
         self._worker = BatchJobWorker(uow_factory, executor, ProgressStore(uow_factory, notifier),
-                                      verification, max_contexts, email_slot_timeout, notifier)
+                                      verification, max_contexts, email_slot_timeout, notifier, browser_control)
         self._active_jobs: dict[UUID, asyncio.Task] = {}
         self._control = asyncio.Lock()
+        self._job_locks: dict[UUID, asyncio.Lock] = {}
         self._closed = False
         self._shutdown_task: asyncio.Task | None = None
 
     async def start_job(self, job_id: UUID) -> None:
-        async with self._control:
+        async with self._job_locks.setdefault(job_id, asyncio.Lock()):
             if self._closed:
                 raise ValueError("Queue is shutting down.")
             active = self._active_jobs.get(job_id)
@@ -60,15 +65,23 @@ class ProcessBatchQueueUseCase:
                     raise ValueError("No pending tasks remain. Use Retry failed tasks for eligible pre-submission failures.")
             if not self._connections:
                 raise MailboxError("AUTH_REQUIRED")
+            if self._browser:
+                await self._browser.assert_ready()
+                for task in job.tasks:
+                    if task.status in (TaskStatus.PENDING, TaskStatus.QUEUED):
+                        await self._browser.assert_task_retriable(task.id)
             binding = await self._connections.resolve_binding(profile.email.value)
             await self._connections.assert_ready(binding)
+            if self._closed:
+                raise ValueError("Queue is shutting down.")
             async with self._factory() as uow:
                 job = await uow.jobs.get_by_id(job_id)
                 job.start()
                 job.completed_at = None
                 await uow.jobs.save(job)
-            worker = asyncio.create_task(self._worker.run(job, profile))
-            self._active_jobs[job_id] = worker
+            async with self._control:
+                worker = asyncio.create_task(self._worker.run(job, profile))
+                self._active_jobs[job_id] = worker
             def release(finished):
                 if self._active_jobs.get(job_id) is finished:
                     self._active_jobs.pop(job_id, None)
@@ -77,7 +90,7 @@ class ProcessBatchQueueUseCase:
 
     async def retry_failed_tasks(self, job_id: UUID) -> int:
         """Requeue safely in one transaction; explicit Start owns execution."""
-        async with self._control:
+        async with self._job_locks.setdefault(job_id, asyncio.Lock()):
             if self._closed:
                 raise ValueError("Queue is shutting down.")
             active = self._active_jobs.get(job_id)
@@ -87,16 +100,16 @@ class ProcessBatchQueueUseCase:
                 job = await uow.jobs.get_by_id(job_id)
                 if not job:
                     raise EntityNotFoundError("Batch job not found.")
-                in_flight = (TaskStatus.RUNNING, TaskStatus.WAITING_EMAIL_SLOT, TaskStatus.WAITING_EMAIL_CODE,
-                             TaskStatus.VERIFYING_EMAIL, TaskStatus.SUBMITTING, TaskStatus.NEEDS_REVIEW)
-                if job.status in (JobStatus.RUNNING, JobStatus.CANCELLED) or any(t.status in in_flight for t in job.tasks):
-                    raise ValueError("Resolve active or uncertain submissions before retrying this job.")
-                failed = [task for task in job.tasks if task.status == TaskStatus.FAILED]
-                if any(task.has_submission_evidence for task in failed):
-                    raise ValueError("Reconcile submission evidence on failed tasks before retrying this job.")
-                eligible = [task for task in failed if task.can_retry_failed]
-                if not eligible:
-                    raise ValueError("No failed tasks remain within the retry limit.")
+                eligible = eligible_failed_tasks(job)
+                checked = {(task.id, task.attempt_id) for task in eligible}
+            if self._browser:
+                for task in eligible:
+                    await self._browser.assert_task_retriable(task.id)
+            async with self._factory() as uow:
+                job = await uow.jobs.get_by_id(job_id)
+                eligible = eligible_failed_tasks(job)
+                if {(task.id, task.attempt_id) for task in eligible} != checked:
+                    raise ValueError("Task state changed during retry admission.")
                 for task in eligible:
                     task.retry_failed()
                     await uow.tasks.save(task)
@@ -122,7 +135,7 @@ class ProcessBatchQueueUseCase:
         await self._finish_owned(asyncio.create_task(self._stop_job(job_id)))
 
     async def _stop_job(self, job_id: UUID) -> None:
-        async with self._control:
+        async with self._job_locks.setdefault(job_id, asyncio.Lock()):
             async with self._factory() as uow:
                 initial = await uow.jobs.get_by_id(job_id)
                 if not initial:
@@ -154,7 +167,11 @@ class ProcessBatchQueueUseCase:
         await self._finish_owned(self._shutdown_task)
 
     async def _shutdown(self) -> None:
-        # Wait for an admitted Start to publish its handle before taking ownership.
+        # Await admitted Start/Retry calls before reading worker ownership.
+        for lock in tuple(self._job_locks.values()):
+            async with lock:
+                if not self._closed:
+                    raise RuntimeError("Shutdown requires closed admission.")
         async with self._control:
             job_ids = list(self._active_jobs)
         for job_id in job_ids:
