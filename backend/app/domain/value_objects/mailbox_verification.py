@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 import time
+from uuid import UUID
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.domain.exceptions.domain_exceptions import InvalidEmailError
 from app.domain.value_objects.email_address import EmailAddress
@@ -42,6 +43,7 @@ class MailboxBinding:
     meta_email: str
     folder_refs: tuple[str, ...]
     template_version: str
+    operator_id: UUID | None = None
 
     def __post_init__(self):
         if self.generation <= 0 or self.mapping_revision <= 0:

@@ -1,6 +1,7 @@
 # File: backend/app/infrastructure/notifier/websocket_notifier.py
 import inspect
 import logging
+from uuid import UUID
 from typing import Any, Callable
 from app.domain.ports.notifier import IEventNotifier
 
@@ -41,3 +42,36 @@ class WebSocketNotifier(IEventNotifier):
                                     payload: dict[str, Any]) -> None:
         self._publish({"type": "TASK_UPDATE", "job_id": job_id,
                        "task_id": task_id, "data": payload})
+
+    async def broadcast_standalone_task_update(
+        self,
+        task_id: str,
+        version: int,
+        attempt_id: Any,
+        payload: dict[str, Any],
+        owner_id: Any = None,
+    ) -> None:
+        if owner_id is None or not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            logger.warning("Rejected unscoped task notification.")
+            return
+        task_id, owner_id = str(UUID(str(task_id))), str(UUID(str(owner_id)))
+        attempt_id = str(UUID(str(attempt_id))) if attempt_id else None
+        safe = {}
+        for key in ("status", "is_running", "is_terminal", "is_retriable"):
+            value = payload.get(key)
+            if (key == "status" and value in {
+                "DRAFT", "PREPARING", "RUNNING", "WAITING_EMAIL_CODE",
+                "VERIFYING_EMAIL", "SUBMITTING", "SUBMITTED", "FAILED",
+                "CANCELLED", "NEEDS_REVIEW",
+            }) or (key != "status" and isinstance(value, bool)):
+                safe[key] = value
+        msg: dict[str, Any] = {
+            "type": "TASK_UPDATE",
+            "task_id": task_id,
+            "version": version,
+            "attempt_id": str(attempt_id) if attempt_id else None,
+            "data": safe,
+        }
+        if owner_id:
+            msg["owner_id"] = str(owner_id)
+        self._publish(msg)

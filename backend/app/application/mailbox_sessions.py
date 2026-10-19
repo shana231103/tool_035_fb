@@ -24,6 +24,7 @@ class MailboxAttemptSessions:
         self._attempts: dict[tuple[str, str], _Attempt] = {}
         self._revoked: set[str] = set()
         self._retiring: set[str] = set()
+        self._drain_events: dict[str, asyncio.Event] = {}
         self._synchronization = MailboxLocks(self._maybe_retire)
         self._locks = self._synchronization.locks
         self._closing = False
@@ -83,22 +84,34 @@ class MailboxAttemptSessions:
             self._revoked.add(connection_id)
             targets = [a for a in self._attempts.values() if a.binding.connection_id == connection_id]
             for attempt in targets:
+                if attempt.admitted:
+                    continue
                 already_cancelled = attempt.reason is not None
                 attempt.reason = reason
                 if not already_cancelled and attempt.task is not caller and not attempt.task.done():
                     attempt.task.cancel()
         # Never join a task under the admission lock it might need in finally.
-        await asyncio.gather(*(a.task for a in targets if a.task is not caller),
+        await asyncio.gather(*(a.task for a in targets if a.task is not caller and not a.admitted),
                              return_exceptions=True)
 
     def cancellation_reason(self, task_id: str, attempt_id: str) -> str | None:
         attempt = self._attempts.get((task_id, attempt_id))
         return attempt.reason if attempt else None
 
+    async def wait_drained(self, connection_id: str) -> None:
+        while self.is_connection_busy(connection_id):
+            ev = self._drain_events.setdefault(connection_id, asyncio.Event())
+            await ev.wait()
+
     async def unregister(self, task_id: str, attempt_id: str) -> None:
         attempt = self._attempts.pop((task_id, attempt_id), None)
         if attempt:
-            self._maybe_retire(attempt.binding.connection_id)
+            cid = attempt.binding.connection_id
+            if not self.is_connection_busy(cid):
+                ev = self._drain_events.pop(cid, None)
+                if ev:
+                    ev.set()
+            self._maybe_retire(cid)
 
     async def shutdown(self) -> None:
         self._closing = True

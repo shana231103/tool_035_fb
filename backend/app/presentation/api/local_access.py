@@ -38,7 +38,17 @@ def check_scope(scope, policy=None):
             raise LocalAccessDenied("AMBIGUOUS_HEADERS")
         headers[name] = value.decode("latin-1")
     peer = scope.get("client")
-    (policy or LocalAccessPolicy(settings.local_allowed_hosts, settings.cors_origins)).check(
+    if policy is None:
+        from app.presentation.api.operator_composition import get_ingress_policy
+        ingress = get_ingress_policy()
+        hosts = set(settings.local_allowed_hosts)
+        origins = set(settings.cors_origins)
+        if ingress.allowed_hosts:
+            hosts.update(ingress.allowed_hosts)
+        if ingress.allowed_origins:
+            origins.update(ingress.allowed_origins)
+        policy = LocalAccessPolicy(hosts, origins)
+    policy.check(
         peer[0] if peer else None, headers.get("host", ""), headers.get("origin"),
         headers.get("sec-fetch-site"), scope.get("method", "GET"),
         scope.get("scheme", "http"), scope["type"] == "websocket",

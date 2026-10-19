@@ -10,11 +10,13 @@ from app.domain.ports.automation_driver import AutomationResult, IAutomationDriv
 from app.domain.value_objects.browser_session import BrowserSessionRequest, ProxySpec
 from app.domain.ports.email_verification import IVerificationBroker
 from app.application.browser_receipts import finish_owned
+from app.application.task_runtime_records import OwnedWorkKind
 from app.infrastructure.automation.report_page_provider import IReportPageProvider
 from app.infrastructure.automation.browser_runtime import browser_failure_message, browser_failure_reason
 from app.domain.value_objects.enums import TaskStatus, PlatformType, OwnerRole
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.domain.value_objects.target_url import TargetUrl
+from app.domain.value_objects.report_targets import ReportTargets
 from app.domain.value_objects.original_url import OriginalUrl
 from app.infrastructure.automation.form_selectors import MetaFormSelectors as S, FormContractError
 from app.infrastructure.automation.form_diagnostics import safe_form_failure
@@ -52,10 +54,13 @@ class PlaywrightMetaReporter(IAutomationDriver):
                                       *, on_receipt: ReceiptCallback | None = None) -> AutomationResult:
         start, lease, stage, submitted = time.perf_counter(), None, "validation", False
         controls = None
+        cancelled = False
         try:
             UUID(params.task_id)
             UUID(params.attempt_id)
-            if params.platform != "FACEBOOK" or TargetUrl.from_raw_url(params.target_url).platform != PlatformType.FACEBOOK:
+            targets = ReportTargets.from_urls(params.target_urls or tuple(params.target_url.splitlines()))
+            if (params.target_url != targets.joined_urls or params.platform != "FACEBOOK"
+                    or any(item.platform != PlatformType.FACEBOOK for item in targets.items)):
                 raise FormContractError("Only Facebook Copyright targets are supported.")
             OriginalUrl.from_raw_url(params.original_url)
             if OwnerRole(params.owner_role) != OwnerRole.OWNER:
@@ -75,6 +80,7 @@ class PlaywrightMetaReporter(IAutomationDriver):
                 endpoint = urlsplit(params.proxy_server)
                 proxy = ProxySpec(endpoint.scheme, endpoint.hostname or "", endpoint.port or 0,
                                   params.proxy_username, params.proxy_password)
+            await progress(TaskStatus.RUNNING, {"stage": "acquire"})
             lease = await self._provider.acquire(BrowserSessionRequest(UUID(params.task_id), UUID(params.attempt_id), proxy))
             page = lease.page
             page.set_default_timeout(self._navigation)
@@ -116,6 +122,7 @@ class PlaywrightMetaReporter(IAutomationDriver):
             return AutomationResult(True, case_number=case, screenshot_path=filename,
                 receipt_text=receipt, duration_seconds=time.perf_counter() - start)
         except asyncio.CancelledError:
+            cancelled = True
             raise
         except Exception as error:
             if stage == "receipt":
@@ -145,7 +152,12 @@ class PlaywrightMetaReporter(IAutomationDriver):
                 error_message=message,
                 duration_seconds=time.perf_counter() - start)
         finally:
-            await finish_owned(self._cleanup(params, lease))
+            try:
+                await finish_owned(self._cleanup(params, lease), OwnedWorkKind.CLEANUP)
+            except Exception:
+                if cancelled:
+                    raise asyncio.CancelledError from None
+                raise
 
     async def _cleanup(self, params, lease):
         operations = []
@@ -155,8 +167,12 @@ class PlaywrightMetaReporter(IAutomationDriver):
             operations.append(lambda: self._broker.close(params.task_id))
         if lease:
             operations.append(lambda: self._provider.release(lease))
+        uncertain = False
         for operation in operations:
             try:
                 await operation()
             except Exception:
+                uncertain = True
                 logger.warning("Report resource cleanup failed: %s", params.task_id)
+        if uncertain:
+            raise RuntimeError("RESOURCE_CLEANUP_UNKNOWN")

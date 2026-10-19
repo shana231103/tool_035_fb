@@ -1,5 +1,6 @@
 # File: backend/app/infrastructure/automation/adspower_binding_bootstrap.py
 import asyncio
+import inspect
 from uuid import uuid4
 from app.domain.exceptions.browser_errors import BrowserError, BrowserOwnershipError, BrowserUnavailable
 from app.domain.value_objects.browser_status import RuntimeBinding
@@ -91,6 +92,11 @@ class BrowserBindingBootstrap:
     async def _write_binding(self, expected):
         async with self.factory() as uow:
             await uow.browser_sessions.initialize_binding_if_empty(expected)
+            commit = getattr(uow, "commit", None)
+            if callable(commit):
+                res = commit()
+                if inspect.isawaitable(res):
+                    await res
 
     async def _readback(self, expected):
         snapshot = await self._snapshot()

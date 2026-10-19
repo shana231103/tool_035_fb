@@ -40,12 +40,12 @@ class BrowserReadinessUseCase:
         resource = status.task
         allows_retry = bool(resource and resource.resource_allows_retry)
         reason = resource.safe_reason if resource else "BROWSER_LEDGER_UNCERTAIN"
-        if allows_retry and not task.can_retry_failed:
+        if allows_retry and not task.can_retry:
             reason = "TASK_NOT_ELIGIBLE"
         view = TaskBrowserStatusView(task_id,
             resource.cleanup_state if resource else TaskCleanupState.UNRESOLVED,
             resource.operation_refs if resource else (),
-            task.can_retry_failed and allows_retry, allows_retry, reason)
+            task.can_retry and allows_retry, allows_retry, reason)
         return BrowserStatusView(status.readiness, view)
 
 

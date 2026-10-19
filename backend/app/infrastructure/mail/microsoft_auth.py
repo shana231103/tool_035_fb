@@ -9,7 +9,7 @@ import msal
 
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.domain.value_objects.mailbox_verification import DeviceLoginPrompt
-from .auth_state import AuthState, join_worker
+from .auth_state import AuthState, clear_auth_state, has_mail_read, join_worker
 
 SCOPES = ["https://graph.microsoft.com/User.Read", "https://graph.microsoft.com/Mail.Read"]
 
@@ -125,7 +125,7 @@ class MicrosoftAuth:
             async with state.lock:
                 result = await asyncio.to_thread(state.app.acquire_token_by_device_flow, state.flow)
                 accounts = state.app.get_accounts() if state.active else []
-                if state.active and result.get("access_token") and not self._has_mail_read(result):
+                if state.active and result.get("access_token") and not has_mail_read(result):
                     state.reason = "MAIL_READ_REQUIRED"
                 elif state.active and result.get("access_token") and len(accounts) == 1:
                     state.account = accounts[0]
@@ -136,7 +136,7 @@ class MicrosoftAuth:
             state.reason = "AUTH_REQUIRED"
         finally:
             if not state.active:
-                self._clear(state)
+                clear_auth_state(state, msal.SerializableTokenCache)
 
     def identity(self, connection_id: str) -> dict:
         state = self.states.get(connection_id)
@@ -167,7 +167,7 @@ class MicrosoftAuth:
                 raise MailboxError("AUTH_REQUIRED") from None
             if not state.active or time.monotonic() >= deadline or not result or not result.get("access_token"):
                 raise MailboxError("AUTH_REQUIRED")
-            if not self._has_mail_read(result) and (force_refresh or not self._has_cached_scopes(state, result)):
+            if not has_mail_read(result) and (force_refresh or not self._has_cached_scopes(state, result)):
                 raise MailboxError("CONSENT_REQUIRED")
             if getattr(state.cache, "has_state_changed", False):
                 state.cache.has_state_changed = False
@@ -194,11 +194,6 @@ class MicrosoftAuth:
         return any(int(entry.get("expires_on", 0)) > now for entry in
                    state.cache.search(msal.TokenCache.CredentialType.ACCESS_TOKEN, target=SCOPES, query=query))
 
-    @staticmethod
-    def _has_mail_read(result):
-        return "mail.read" in {scope.casefold().removeprefix("https://graph.microsoft.com/")
-                                for scope in result.get("scope", "").split()}
-
     async def cancel_login(self, login_id: str) -> None:
         state = self.states.get(login_id)
         if state is None:
@@ -209,20 +204,8 @@ class MicrosoftAuth:
             if state.worker is not None:
                 await join_worker(state.worker)
         finally:
-            self._clear(state)
+            clear_auth_state(state, msal.SerializableTokenCache)
             self.states.pop(login_id, None)
-
-    @staticmethod
-    def _clear(state):
-        try:
-            if state.app is not None:
-                for account in state.app.get_accounts():
-                    state.app.remove_account(account)
-        finally:
-            state.account = None
-            state.flow.clear()
-            state.app = None
-            state.cache = msal.SerializableTokenCache()
 
     async def shutdown(self) -> None:
         self.closed = True

@@ -1,4 +1,5 @@
 # File: backend/app/application/use_cases/manage_profiles.py
+import inspect
 from typing import List
 from uuid import UUID
 from app.application.dtos.profile_dtos import (
@@ -8,6 +9,14 @@ from app.application.dtos.profile_dtos import (
 from app.application.unit_of_work import IUnitOfWork
 from app.domain.entities.owner_profile import OwnerProfile
 from app.domain.exceptions.domain_exceptions import EntityNotFoundError
+
+
+async def _commit_uow(uow: IUnitOfWork) -> None:
+    commit = getattr(uow, "commit", None)
+    if callable(commit):
+        res = commit()
+        if inspect.isawaitable(res):
+            await res
 
 
 class ManageProfilesUseCase:
@@ -28,6 +37,7 @@ class ManageProfilesUseCase:
         profile.validate_for_submission()
         async with self._uow:
             await self._uow.profiles.save(profile)
+            await _commit_uow(self._uow)
 
         return self._to_dto(profile)
 
@@ -40,6 +50,7 @@ class ManageProfilesUseCase:
             profile.validate_for_submission()
             profile.created_at = existing.created_at
             await self._uow.profiles.save(profile)
+            await _commit_uow(self._uow)
         return self._to_dto(profile)
 
     async def list_profiles(self) -> List[ProfileResponseDTO]:
@@ -57,6 +68,7 @@ class ManageProfilesUseCase:
     async def delete_profile(self, profile_id: UUID) -> None:
         async with self._uow:
             await self._uow.profiles.delete(profile_id)
+            await _commit_uow(self._uow)
 
     @staticmethod
     def _to_dto(p: OwnerProfile) -> ProfileResponseDTO:

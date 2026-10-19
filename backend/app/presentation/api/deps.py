@@ -1,12 +1,12 @@
 # File: backend/app/presentation/api/deps.py
 import os
 from fastapi import Depends
-from app.application.unit_of_work import IUnitOfWork
-from app.application.use_cases.create_batch_job import CreateBatchJobUseCase
-from app.application.use_cases.list_batch_jobs import ListBatchJobsUseCase
+from app.application.unit_of_work import IUnitOfWork, SystemPurpose
+from app.domain.value_objects.operator_identity import OperatorPrincipal
+from app.presentation.api.operator_auth import get_current_principal
+from app.presentation.api.operator_composition import get_scoped_uow_factory
 from app.application.use_cases.manage_profiles import ManageProfilesUseCase
 from app.application.use_cases.manage_proxies import ManageProxiesUseCase
-from app.application.use_cases.process_batch_queue import ProcessBatchQueueUseCase
 from app.application.mailbox_sessions import MailboxAttemptSessions
 from app.application.mailbox_correlation import MailboxCorrelationPolicy
 from app.application.use_cases.collect_email_verification_code import CollectEmailVerificationCodeUseCase
@@ -34,13 +34,14 @@ from app.infrastructure.automation.playwright_reporter import PlaywrightMetaRepo
 from app.infrastructure.network.http_proxy_checker import HttpProxyChecker
 from app.infrastructure.notifier.websocket_notifier import WebSocketNotifier
 from app.infrastructure.persistence.database import db_manager
-from app.infrastructure.persistence.sql_unit_of_work import SqlAlchemyUnitOfWork
+from app.infrastructure.persistence.sql_unit_of_work import SqlAlchemyUnitOfWork, SystemUnitOfWorkFactory
 from app.infrastructure.persistence.schema_health import check_browser_schema
 from app.infrastructure.storage.local_storage import LocalStorageService
 from app.presentation.ws.socket_manager import socket_manager
 
 # Singleton instances
-_browser_control = configure_browser_control(lambda: SqlAlchemyUnitOfWork(db_manager),
+_browser_control = configure_browser_control(
+    lambda: SystemUnitOfWorkFactory(db_manager).open(SystemPurpose.PROVIDER_LEDGER),
     settings.max_browser_contexts, lambda: check_browser_schema(db_manager))
 _storage_service = LocalStorageService(
     base_storage_dir=settings.base_storage_dir,
@@ -100,8 +101,12 @@ _playwright_reporter = PlaywrightMetaReporter(
 )
 
 
-def get_unit_of_work() -> IUnitOfWork:
-    return SqlAlchemyUnitOfWork(db_manager)
+def get_unit_of_work(
+    principal: OperatorPrincipal = Depends(get_current_principal),
+) -> IUnitOfWork:
+    if principal is None:
+        raise RuntimeError("An authenticated owner is required for a scoped UoW.")
+    return SqlAlchemyUnitOfWork(db_manager, operator_id=principal.operator_id)
 
 
 def get_storage_service() -> IStorageService:
@@ -124,47 +129,28 @@ def get_verification_broker() -> InMemoryVerificationBroker:
     return _verification
 
 
-# Shared queue orchestrator singleton across requests
-_queue_orchestrator = ProcessBatchQueueUseCase(
-    uow_factory=get_unit_of_work,
-    verification=_verification,
-    max_contexts=settings.max_browser_contexts, email_slot_timeout=settings.email_slot_timeout,
-    automation_driver=_playwright_reporter,
-    notifier=_notifier,
-    connections=_mailbox_connections, sessions=_mailbox_sessions,
-    browser_control=_browser_control,
-)
-
-
-def get_queue_orchestrator() -> ProcessBatchQueueUseCase:
-    return _queue_orchestrator
-
-
-def get_create_batch_job_use_case(
-    storage: IStorageService = Depends(get_storage_service),
-) -> CreateBatchJobUseCase:
-    return CreateBatchJobUseCase(get_unit_of_work, storage)
-
-
-def get_list_batch_jobs_use_case() -> ListBatchJobsUseCase:
-    return ListBatchJobsUseCase(get_unit_of_work)
-
-
 def get_manage_proxies_use_case(
-    uow: IUnitOfWork = Depends(get_unit_of_work),
+    principal: OperatorPrincipal = Depends(get_current_principal),
     health: IProxyHealthService = Depends(get_proxy_health_service),
 ) -> ManageProxiesUseCase:
-    return ManageProxiesUseCase(uow, health)
+    scoped = get_scoped_uow_factory()
+    return ManageProxiesUseCase(scoped.operator(principal.operator_id, write=True), health)
 
 
 def get_manage_profiles_use_case(
-    uow: IUnitOfWork = Depends(get_unit_of_work),
+    principal: OperatorPrincipal = Depends(get_current_principal),
 ) -> ManageProfilesUseCase:
-    return ManageProfilesUseCase(uow)
+    scoped = get_scoped_uow_factory()
+    return ManageProfilesUseCase(scoped.operator(principal.operator_id, write=True))
 
 
-def get_manage_mailbox_connection_use_case() -> ManageMailboxConnectionUseCase:
-    return ManageMailboxConnectionUseCase(_mailbox_connections, _mailbox_sessions)
+def get_manage_mailbox_connection_use_case(
+    principal: OperatorPrincipal = Depends(get_current_principal),
+) -> ManageMailboxConnectionUseCase:
+    return ManageMailboxConnectionUseCase(
+        _mailbox_connections, _mailbox_sessions,
+        owner=principal.operator_id, session_id=principal.session_id,
+    )
 
 
 def get_mailbox_connections():
@@ -181,3 +167,7 @@ def get_graph_transport():
 
 def get_microsoft_auth():
     return _microsoft_auth
+
+
+def get_queue_orchestrator():
+    return None

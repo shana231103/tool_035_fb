@@ -1,6 +1,6 @@
 # File: backend/app/presentation/api/v1/mailbox_connections.py
 from dataclasses import asdict
-from uuid import UUID
+from uuid import UUID, uuid5, NAMESPACE_URL
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from app.application.dtos.mailbox_dtos import (
@@ -14,9 +14,14 @@ from app.domain.value_objects.mailbox_verification import MailboxMapping
 from app.infrastructure.mail.meta_report_template import META_REPORT_TEMPLATE_VERSION
 from app.presentation.api.mailbox_guard import trusted_local_operator
 from app.presentation.api.deps import get_manage_mailbox_connection_use_case
+from app.presentation.api.operator_auth import get_current_principal, require_csrf, require_session_context
+from app.application.task_records import DisconnectCommand
+from app.domain.value_objects.task_execution import ControlReceiptStatus
+from app.presentation.api.task_composition import get_operator_controls
+from app.presentation.task_http_errors import task_http_error
 
 router = APIRouter(prefix="/mailbox-connections", tags=["Microsoft mailbox"],
-                   dependencies=[Depends(trusted_local_operator)])
+    dependencies=[Depends(trusted_local_operator), Depends(get_current_principal)])
 
 
 def safe_error(error):
@@ -30,7 +35,8 @@ async def capabilities():
         template_label="Meta — Please verify your email address")
 
 
-@router.post("/reservations", status_code=201, response_model=MailboxReservationDTO)
+@router.post("/reservations", status_code=201, response_model=MailboxReservationDTO,
+    dependencies=[Depends(require_csrf), Depends(require_session_context)])
 async def reserve_connection(dto: ReserveMailboxDTO,
     use_case: ManageMailboxConnectionUseCase = Depends(get_manage_mailbox_connection_use_case)):
     try:
@@ -39,7 +45,8 @@ async def reserve_connection(dto: ReserveMailboxDTO,
         raise safe_error(error) from None
 
 
-@router.post("/connect", response_model=MailboxConnectionDTO)
+@router.post("/connect", response_model=MailboxConnectionDTO,
+    dependencies=[Depends(require_csrf), Depends(require_session_context)])
 async def connect(dto: ConnectMailboxDTO,
     use_case: ManageMailboxConnectionUseCase = Depends(get_manage_mailbox_connection_use_case)):
     try:
@@ -58,7 +65,8 @@ async def list_connections(
     return [MailboxConnectionDTO.from_view(v) for v in await use_case.list_connections()]
 
 
-@router.put("/{connection_id}/mapping", response_model=MailboxConnectionDTO)
+@router.put("/{connection_id}/mapping", response_model=MailboxConnectionDTO,
+    dependencies=[Depends(require_csrf), Depends(require_session_context)])
 async def set_mapping(connection_id: UUID, dto: MailboxMappingDTO,
     use_case: ManageMailboxConnectionUseCase = Depends(get_manage_mailbox_connection_use_case)):
     try:
@@ -73,8 +81,22 @@ async def set_mapping(connection_id: UUID, dto: MailboxMappingDTO,
         raise HTTPException(422, "Invalid mailbox mapping.") from None
 
 
-@router.delete("/{connection_id}", status_code=204)
+@router.delete("/{connection_id}", status_code=204,
+    dependencies=[Depends(require_csrf), Depends(require_session_context)])
 async def disconnect(connection_id: UUID,
-    use_case: ManageMailboxConnectionUseCase = Depends(get_manage_mailbox_connection_use_case)):
-    await use_case.disconnect(str(connection_id))
+    principal=Depends(get_current_principal), controls=Depends(get_operator_controls)):
+    # Connection UUIDs are single-use: one durable disconnect intent survives
+    # retries without changing the existing DELETE/204 client contract.
+    command_id = uuid5(NAMESPACE_URL,
+        f"meta-copyright:disconnect:v2:{principal.operator_id}:{connection_id}")
+    try:
+        receipt = await controls.disconnect_mailbox(principal,
+            DisconnectCommand(command_id=command_id, connection_id=str(connection_id)))
+    except MailboxError as error:
+        raise safe_error(error) from None
+    except Exception as error:
+        raise task_http_error(error) from None
+    if receipt.status != ControlReceiptStatus.COMPLETE:
+        raise HTTPException(503, {"code": "CONTROL_OUTCOME_UNKNOWN",
+                                  "message": "Check the disconnect result."})
     return Response(status_code=204, headers={"Cache-Control": "no-store"})

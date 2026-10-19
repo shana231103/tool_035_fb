@@ -17,12 +17,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, watch, onUnmounted } from 'vue';
 import { useBrowserStore } from '../stores/browserStore.js';
-import { browserUnavailable } from '../services/browserStatus.js';
+import { useAuthStore } from '../stores/authStore.js';
+import { getBrowserErrorMessage } from '../services/browserStatus.js';
 const browser = useBrowserStore();
-const message = computed(() => browser.loading ? 'Đang kiểm tra trình duyệt…'
-  : browser.canStart ? 'Trình duyệt đã sẵn sàng.' : browserUnavailable);
-onMounted(() => browser.init());
+const auth = useAuthStore();
+const message = computed(() => {
+  if (browser.loading) return 'Đang kiểm tra trình duyệt…';
+  if (browser.canStart) return 'Trình duyệt đã sẵn sàng.';
+  return getBrowserErrorMessage(browser.status?.safe_reason);
+});
+watch(() => auth.sessionContext, session => {
+  if (session && auth.isAuthenticated) void browser.init();
+}, {immediate: true});
 onUnmounted(() => browser.stop());
 </script>

@@ -14,12 +14,14 @@
 backend/.env
 backend/.env.*
 !backend/.env.example
+!backend/.env.supabase.example
 frontend/.env.local
 frontend/.env.*.local
 *.pem
 *.key
 *.cert
 *.crt
+!backend/certs/supabase-root.crt
 *.pfx
 *.p12
 

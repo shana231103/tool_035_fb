@@ -1,6 +1,5 @@
 # File: backend/app/domain/ports/__init__.py
 from app.domain.ports.repositories import (
-    IBatchJobRepository,
     IReportTaskRepository,
     IProxyRepository,
     IOwnerProfileRepository,
@@ -12,11 +11,17 @@ from app.domain.ports.automation_driver import (
 )
 from app.domain.ports.storage_service import IStorageService
 from app.domain.ports.proxy_health import IProxyHealthService, ProxyCheckResult
-from app.domain.ports.notifier import IEventNotifier
+from app.domain.ports.task_execution_ports import (
+    ITaskExecutionRepository,
+    ITaskStartReceiptRepository,
+    IControlRepository,
+)
 
 __all__ = [
-    "IBatchJobRepository",
     "IReportTaskRepository",
+    "ITaskExecutionRepository",
+    "ITaskStartReceiptRepository",
+    "IControlRepository",
     "IProxyRepository",
     "IOwnerProfileRepository",
     "IAutomationDriver",

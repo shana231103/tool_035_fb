@@ -1,4 +1,5 @@
 # File: backend/app/application/use_cases/manage_proxies.py
+import inspect
 from typing import List, Optional
 from uuid import UUID
 from app.application.dtos.proxy_dtos import (
@@ -10,6 +11,14 @@ from app.application.unit_of_work import IUnitOfWork
 from app.domain.entities.proxy_item import ProxyItem
 from app.domain.exceptions.domain_exceptions import EntityNotFoundError
 from app.domain.ports.proxy_health import IProxyHealthService
+
+
+async def _commit_uow(uow: IUnitOfWork) -> None:
+    commit = getattr(uow, "commit", None)
+    if callable(commit):
+        res = commit()
+        if inspect.isawaitable(res):
+            await res
 
 
 class ManageProxiesUseCase:
@@ -28,6 +37,7 @@ class ManageProxiesUseCase:
         )
         async with self._uow:
             await self._uow.proxies.save(proxy)
+            await _commit_uow(self._uow)
 
         return self._to_dto(proxy)
 
@@ -54,6 +64,7 @@ class ManageProxiesUseCase:
             else:
                 proxy.mark_failed()
             await self._uow.proxies.save(proxy)
+            await _commit_uow(self._uow)
 
         return TestProxyResponseDTO(
             proxy_id=proxy.id,
@@ -66,6 +77,7 @@ class ManageProxiesUseCase:
     async def delete_proxy(self, proxy_id: UUID) -> None:
         async with self._uow:
             await self._uow.proxies.delete(proxy_id)
+            await _commit_uow(self._uow)
 
     @staticmethod
     def _to_dto(p: ProxyItem) -> ProxyResponseDTO:

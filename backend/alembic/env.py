@@ -7,6 +7,7 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.config import settings
 from app.infrastructure.persistence.models import Base
+from app.infrastructure.persistence.database_connection import build_async_engine_options
 
 config = context.config
 target_metadata = Base.metadata
@@ -20,10 +21,17 @@ def migrate(connection):
 
 
 async def online():
-    engine = create_async_engine(settings.database_url)
-    async with engine.connect() as connection:
-        await connection.run_sync(migrate)
-    await engine.dispose()
+    url, options = build_async_engine_options(
+        settings.database_migration_url or settings.database_url, migration=True
+    )
+    if url.get_backend_name() != "sqlite":
+        raise RuntimeError("For a new PostgreSQL database use backend/alembic_postgres.ini.")
+    engine = create_async_engine(url, **options)
+    try:
+        async with engine.connect() as connection:
+            await connection.run_sync(migrate)
+    finally:
+        await engine.dispose()
 
 
 if context.is_offline_mode():

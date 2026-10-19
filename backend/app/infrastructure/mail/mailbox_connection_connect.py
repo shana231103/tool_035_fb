@@ -18,10 +18,11 @@ class RefreshMailboxConnector:
         self.probe, self.template_version = probe, template_version
         self.connect_timeout, self.tasks = connect_timeout, {}
 
-    async def connect(self, connection_id, credentials):
-        deadline = min(self.reservations.consume(connection_id), time.monotonic() + self.connect_timeout)
+    async def connect(self, connection_id, credentials, deadline=None):
+        consumed_deadline = self.reservations.consume(connection_id)
+        effective_deadline = min(consumed_deadline, (time.monotonic() + self.connect_timeout) if deadline is None else deadline)
         generation = self.registry.get(connection_id).generation
-        task = asyncio.create_task(self._run(connection_id, credentials, generation, deadline))
+        task = asyncio.create_task(self._run(connection_id, credentials, generation, effective_deadline))
         self.tasks[connection_id] = task
         try:
             return await asyncio.shield(task)
@@ -102,6 +103,18 @@ class RefreshMailboxConnector:
         if self.template_version not in self.registry.evidence_versions:
             raise MailboxError("EVIDENCE_REQUIRED")
         self.auth.assert_active(record.id)
+        if record.owner is not None:
+            owner_connected = sum(
+                r.status == "connected" and getattr(r, "owner", None) == record.owner
+                for r in self.registry.records.values() if r.id != record.id
+            )
+            if owner_connected >= 4:
+                raise MailboxError("BUSY")
+        global_connected = sum(
+            r.status == "connected" for r in self.registry.records.values() if r.id != record.id
+        )
+        if global_connected >= 16:
+            raise MailboxError("BUSY")
         for other in self.registry.records.values():
             if other.id != record.id and (
                     (other.status == "connected" and (other.account_id == identity.provider_user_id or

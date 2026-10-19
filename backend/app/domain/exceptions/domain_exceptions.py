@@ -27,5 +27,13 @@ class InvalidStateTransitionError(DomainError):
     """Raised when an illegal lifecycle transition occurs."""
 
 
+class TargetLimitExceededError(DomainError):
+    """Raised when target URL count exceeds the single report limit (30)."""
+
+
+class LegacyTaskReadOnlyError(DomainError):
+    """Raised when an attempt is made to execute or mutate a legacy read-only task."""
+
+
 class EntityNotFoundError(DomainError):
     """Raised when an entity requested from repository does not exist."""

@@ -1,11 +1,43 @@
 // File: frontend/src/services/api.js
 import axios from "axios";
 import { mailboxReason } from './mailboxConnect.js';
+import { useAuthStore } from "../stores/authStore.js";
+import { authLifecycle } from "./authLifecycle.js";
 
 const apiClient = axios.create({
   baseURL: "/api/v1",
   timeout: 30000,
 });
+
+apiClient.interceptors.request.use((config) => {
+  try {
+    const authStore = useAuthStore();
+    const method = config.method?.toLowerCase();
+    if (["post", "put", "patch", "delete"].includes(method)) {
+      if (authStore.csrfToken) {
+        config.headers["X-CSRF-Token"] = authStore.csrfToken;
+      }
+      if (authStore.sessionContext) {
+        config.headers["X-Operator-Session"] = authStore.sessionContext;
+      }
+    }
+  } catch (e) {
+    // Pinia not yet initialized or test environment
+  }
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      authLifecycle.handleAuthLoss(error);
+    }
+    return Promise.reject(error);
+  }
+);
+
+export { tasksApi } from "./tasksApi.js";
 
 export const jobsApi = {
   async listJobsPage(limit = 50, offset = 0) {
