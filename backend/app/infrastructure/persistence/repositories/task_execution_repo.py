@@ -20,7 +20,16 @@ class SqlTaskExecutionRepository(ITaskExecutionRepository):
         self._session = session
 
     async def read(self) -> ExecutionSlotRecord:
-        result = await self._session.execute(select(Slot).where(Slot.singleton_id == 1).with_for_update().execution_options(populate_existing=True))
+        return await self._load(locked=True)
+
+    async def observe(self) -> ExecutionSlotRecord:
+        return await self._load(locked=False)
+
+    async def _load(self, *, locked: bool) -> ExecutionSlotRecord:
+        statement = select(Slot).where(Slot.singleton_id == 1)
+        if locked:
+            statement = statement.with_for_update()
+        result = await self._session.execute(statement.execution_options(populate_existing=True))
         m = result.scalar_one_or_none()
         if m is None:
             raise TaskBusyError("Execution slot schema is not initialized.")

@@ -58,6 +58,8 @@ class AdsPowerCdp:
                 if len(browser.contexts) != 1:
                     raise AdsPowerTransportError("BROWSER_CDP_UNREACHABLE")
                 page = await browser.contexts[0].new_page()
+                # Normalize the owned task tab before the reporter navigates to the form.
+                await page.set_viewport_size({"width": 1280, "height": 720})
                 lease = ReportPageLease(operation_id, page, browser)
                 self._leases[operation_id] = lease
                 return lease

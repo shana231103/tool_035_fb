@@ -61,6 +61,9 @@ class TaskAdmissionService:
                 raise EntityNotFoundError("NOT_FOUND")
             if task.version != command.expected_version:
                 raise StaleVersionError("TASK_VERSION_CONFLICT")
+            slot = await uow.slot.read()
+            if not slot.is_free:
+                raise TaskNotRetriableError("TASK_NOT_RETRIABLE")
             ledger = await uow.browser_sessions.read_bootstrap_snapshot()
             if not task.can_retry or self._runtime.is_busy or not ledger.complete or ledger.unclosed_records or ledger.total_charged:
                 raise TaskNotRetriableError("TASK_NOT_RETRIABLE")
@@ -73,7 +76,7 @@ class TaskAdmissionService:
 
     async def execution_status(self, principal):
         async with self._factory.owned(principal.operator_id) as uow:
-            slot = await uow.slot.read()
+            slot = await uow.slot.observe()
             ledger = await uow.browser_sessions.read_bootstrap_snapshot()
         available = slot.is_free and not self._runtime.is_busy and ledger.complete and not ledger.unclosed_records and not ledger.total_charged
         return ExecutionAvailability(available=available, current_phase=slot.phase,

@@ -97,7 +97,7 @@ class CopyrightPages:
             self.fail("NOT_RETAINED")
 
     async def _prepare(self, params: AutomationSubmissionParams) -> None:
-        await self.check(self.page.get_by_role("radio", name=S.COPYRIGHT, exact=True), "copyright")
+        await self.check(self.page.get_by_role("radio", name=S.COPYRIGHT_NAME), "copyright")
         await self.next(self.page.get_by_role("radio", name=S.PLATFORM, exact=True), 1)
         await self.check(self.page.get_by_role("radio", name=S.PLATFORM, exact=True), "platform")
         await self.next(self.page.get_by_role("combobox"), 2)

@@ -1,8 +1,12 @@
 # File: backend/app/infrastructure/automation/adspower_acquire.py
 import asyncio
+import logging
+import time
 from app.domain.exceptions.browser_errors import BrowserUnavailable
 from app.domain.value_objects.browser_session import BrowserPhase, CleanupState, CompletionEvidence
 from app.infrastructure.automation.adspower_wire import ProfileDraft, AdsPowerTransportError, TransportCertainty
+
+logger = logging.getLogger(__name__)
 
 
 async def drain_owned(task):
@@ -50,6 +54,8 @@ class ProfileAcquireFlow:
 
     async def _run_reserved(self, record, request):
         operation_id = record.operation_id
+        stage = "create_profile"
+        started_at = time.monotonic()
         task = asyncio.create_task(self._create(record, request))
         self.operations[operation_id] = task
         try:
@@ -58,8 +64,10 @@ class ProfileAcquireFlow:
             except asyncio.CancelledError:
                 await self.drain_create_result(operation_id, task)
                 raise
+            stage = "persist_start"
             await self.budget.transition(operation_id, BrowserPhase.START_IN_FLIGHT)
             self.identity.assert_authority()
+            stage = "start_profile"
             start = asyncio.create_task(self.client.start_profile(created.profile_id))
             self.operations[operation_id] = start
             try:
@@ -70,6 +78,7 @@ class ProfileAcquireFlow:
                 except Exception:
                     started = None
                 raise
+            stage = "attach_cdp"
             attach = asyncio.create_task(self.cdp.attach(started, operation_id))
             self.operations[operation_id] = attach
             try:
@@ -80,9 +89,13 @@ class ProfileAcquireFlow:
                 except Exception:
                     lease = None
                 raise
+            stage = "persist_attached"
             await self.budget.transition(operation_id, BrowserPhase.ATTACHED)
             return lease
         except BaseException as error:
+            # Deliberately exclude exception text/tracebacks, profile IDs and endpoints.
+            logger.warning("Browser acquire failed: stage=%s error_type=%s elapsed_seconds=%.1f",
+                           stage, type(error).__name__, time.monotonic() - started_at)
             if self.cleanup is not None:
                 cleanup = asyncio.create_task(self.cleanup.run(operation_id))
                 self.operations[operation_id] = cleanup

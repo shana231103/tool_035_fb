@@ -100,6 +100,8 @@ class ProfileDraft:
                 proxy["proxy_password"] = password
         return {"group_id": self.group_id, "name": self.name, "remark": self.marker,
                 "fingerprint_config": {
+                    "random_ua": {"ua_browser": ["chrome"], "ua_system_version": ["Windows 10"]},
+                    "screen_resolution": "1366_768",
                     "webrtc": "disabled",
                     "language_switch": "0",
                     "language": ["en-US", "en"],

@@ -27,6 +27,11 @@ class ITaskExecutionRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def observe(self) -> ExecutionSlotRecord:
+        """Read advisory slot state without acquiring mutation authority."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def claim(
         self, grant: ExecutionGrant, expected_generation: int
     ) -> None:

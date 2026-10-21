@@ -2,7 +2,7 @@
 """Domain port interfaces for security, clock, accounts, sessions, and limits."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
@@ -94,7 +94,11 @@ class ISessionRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def touch(self, id: UUID, expected_auth_version: int, now: datetime) -> bool:
+    async def touch(
+        self, id: UUID, expected_auth_version: int, now: datetime, *,
+        min_interval: timedelta = timedelta(0),
+    ) -> bool:
+        """Advance a valid session only after its persisted activity interval."""
         raise NotImplementedError
 
     @abstractmethod

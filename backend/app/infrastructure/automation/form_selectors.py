@@ -1,8 +1,16 @@
 # File: backend/app/infrastructure/automation/form_selectors.py
+import re
+
+
 class MetaFormSelectors:
     """English labels observed live 2026-10-03; OTP/receipt still require live verification."""
     FORM_URL = "https://help.meta.com/requests/1523801815366035/"
     COPYRIGHT = "Copyright Original works of authorship, such as films, music or books"
+    # Accessible names may expose just the title; the explanatory text can be aria-describedby.
+    # Keep both ends anchored so unrelated names such as "Copyright policy" cannot be selected.
+    COPYRIGHT_NAME = re.compile(
+        r"^\s*Copyright(?:\s+Original\s+works\s+of\s+authorship,\s+such\s+as\s+films,"
+        r"\s+music\s+or\s+books\.?)?\s*$", re.IGNORECASE)
     PLATFORM = "Facebook"
     JURISDICTION = "Where are you asserting rights?"
     OWNER_ROLE = "Yes"

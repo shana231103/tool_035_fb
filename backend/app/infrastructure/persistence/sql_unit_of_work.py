@@ -109,9 +109,10 @@ class SqlAlchemyUnitOfWork(IUnitOfWork):
 
 class SystemSqlUnitOfWork(SqlAlchemyUnitOfWork, ISystemUnitOfWork):
     def __init__(
-        self, session_manager: DatabaseSessionManager, purpose: SystemPurpose
+        self, session_manager: DatabaseSessionManager, purpose: SystemPurpose,
+        *, write: bool = True,
     ):
-        super().__init__(session_manager, operator_id=DEFAULT_OPERATOR_ID, write=True)
+        super().__init__(session_manager, operator_id=DEFAULT_OPERATOR_ID, write=write)
         self._operator_id = None
         self.purpose = purpose
 
@@ -149,5 +150,7 @@ class SystemUnitOfWorkFactory(ISystemUnitOfWorkFactory):
     def __init__(self, session_manager: DatabaseSessionManager):
         self._session_manager = session_manager
 
-    def open(self, purpose: SystemPurpose) -> AsyncContextManager[ISystemUnitOfWork]:
-        return SystemSqlUnitOfWork(self._session_manager, purpose)
+    def open(
+        self, purpose: SystemPurpose, *, write: bool = True
+    ) -> AsyncContextManager[ISystemUnitOfWork]:
+        return SystemSqlUnitOfWork(self._session_manager, purpose, write=write)

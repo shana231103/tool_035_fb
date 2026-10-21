@@ -1,6 +1,7 @@
 # File: backend/app/infrastructure/automation/adspower_client.py
 import asyncio
 import json
+import logging
 import time
 import httpx
 from app.infrastructure.automation.adspower_policy import AdsPowerPolicy
@@ -8,6 +9,22 @@ from app.infrastructure.automation.adspower_wire import (
     AdsPowerTransportError, CreatedProfile, StartedProfile, ProfileStatus,
     ProviderAck, ProfilePage, ProfileSummary, TransportCertainty, envelope, profile_id,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def log_request_failure(path, error, started_at):
+    routes = {
+        "/api/v2/browser-profile/list": "list_profiles",
+        "/api/v2/browser-profile/create": "create_profile",
+        "/api/v2/browser-profile/start": "start_profile",
+        "/api/v2/browser-profile/active": "profile_status",
+        "/api/v2/browser-profile/stop": "stop_profile",
+        "/api/v2/browser-profile/delete": "delete_profile",
+    }
+    # Exception text can contain URLs, response bodies and API keys; never log it.
+    logger.warning("AdsPower API failed: operation=%s error_type=%s elapsed_seconds=%.1f",
+                   routes.get(path, "other"), type(error).__name__, time.monotonic() - started_at)
 
 
 class AdsPowerClient:
@@ -26,6 +43,7 @@ class AdsPowerClient:
 
     async def _request(self, method, path, *, payload=None, params=None, deadline=None):
         dispatched = False
+        started_at = time.monotonic()
         try:
             async with asyncio.timeout(deadline or self.settings.read_timeout):
                 async with self._pace:
@@ -34,7 +52,12 @@ class AdsPowerClient:
                         await asyncio.sleep(delay)
                     self._next_request = time.monotonic() + 1 / self.settings.api_rps
                 dispatched = True
-                async with self._http.stream(method, path, json=payload, params=params) as response:
+                # Lifecycle operations have their own budget (e.g. start_timeout).
+                # Override the client's default read timeout so it cannot cut that budget short.
+                timeout = httpx.Timeout(deadline or self.settings.read_timeout,
+                                        connect=self.settings.connect_timeout)
+                async with self._http.stream(method, path, json=payload, params=params,
+                                             timeout=timeout) as response:
                     if response.status_code in {401, 403}:
                         raise AdsPowerTransportError("API_AUTH_REQUIRED", TransportCertainty.ACKNOWLEDGED)
                     if response.status_code == 429:
@@ -47,11 +70,14 @@ class AdsPowerClient:
                         if len(body) > self.settings.response_limit:
                             raise AdsPowerTransportError("API_INCOMPATIBLE")
                     return envelope(json.loads(body))
-        except AdsPowerTransportError:
+        except AdsPowerTransportError as error:
+            log_request_failure(path, error, started_at)
             raise
-        except (httpx.ConnectError, httpx.ConnectTimeout):
+        except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+            log_request_failure(path, error, started_at)
             raise AdsPowerTransportError(certainty=TransportCertainty.NOT_SENT) from None
-        except (httpx.HTTPError, TimeoutError, ValueError, UnicodeError):
+        except (httpx.HTTPError, TimeoutError, ValueError, UnicodeError) as error:
+            log_request_failure(path, error, started_at)
             certainty = TransportCertainty.MAY_HAVE_BEEN_SENT if dispatched else TransportCertainty.NOT_SENT
             raise AdsPowerTransportError(certainty=certainty) from None
 
@@ -82,7 +108,8 @@ class AdsPowerClient:
     async def start_profile(self, ident):
         ident = profile_id(ident)
         data = await self._request("POST", "/api/v2/browser-profile/start",
-            payload={"profile_id": ident, "last_opened_tabs": 0}, deadline=self.settings.start_timeout)
+            payload={"profile_id": ident, "last_opened_tabs": 0,
+                     "launch_args": ["--start-maximized"]}, deadline=self.settings.start_timeout)
         try:
             endpoint, port = data["ws"]["puppeteer"], int(data["debug_port"])
             if not isinstance(endpoint, str):

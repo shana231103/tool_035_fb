@@ -4,8 +4,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 from uuid import UUID
-import sqlalchemy as sa
-from sqlalchemy import case, delete, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.ports.operator_security import ISessionRepository
@@ -14,6 +13,7 @@ from app.infrastructure.persistence.operator_models import (
     OperatorAccountModel,
     OperatorSessionModel,
 )
+from app.infrastructure.persistence.repositories.operator_session_touch import touch_statement
 
 
 def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -52,7 +52,7 @@ class SqlOperatorSessionRepository(ISessionRepository):
         stmt = select(OperatorSessionModel).where(
             OperatorSessionModel.secret_digest == digest
         )
-        res = await self._session.execute(stmt)
+        res = await self._session.execute(stmt.execution_options(populate_existing=True))
         model = res.scalar_one_or_none()
         return self._to_record(model) if model else None
 
@@ -90,25 +90,11 @@ class SqlOperatorSessionRepository(ISessionRepository):
         self._session.add(model)
         await self._session.flush()
 
-    async def touch(self, id: UUID, expected_auth_version: int, now: datetime) -> bool:
-        candidate_idle = now + timedelta(minutes=30)
-        stmt = (
-            update(OperatorSessionModel)
-            .where(
-                OperatorSessionModel.id == str(id),
-                OperatorSessionModel.auth_version == expected_auth_version,
-                OperatorSessionModel.revoked_at.is_(None),
-                OperatorSessionModel.expires_at > now,
-                OperatorSessionModel.idle_expires_at > now,
-            )
-            .values(
-                last_seen_at=now,
-                idle_expires_at=case(
-                    (OperatorSessionModel.expires_at < candidate_idle, OperatorSessionModel.expires_at),
-                    else_=candidate_idle,
-                ),
-            )
-        )
+    async def touch(
+        self, id: UUID, expected_auth_version: int, now: datetime, *,
+        min_interval: timedelta = timedelta(0),
+    ) -> bool:
+        stmt = touch_statement(id, expected_auth_version, now, min_interval)
         res = await self._session.execute(stmt)
         return res.rowcount > 0
 
@@ -162,7 +148,7 @@ class SqlOperatorSessionRepository(ISessionRepository):
                 statuses[sess_id] = SessionStatus.REVOKED
             elif sess.revoked_at is not None:
                 statuses[sess_id] = SessionStatus.REVOKED
-            elif now > _ensure_utc(sess.expires_at) or now > _ensure_utc(sess.idle_expires_at):
+            elif now >= _ensure_utc(sess.expires_at) or now >= _ensure_utc(sess.idle_expires_at):
                 statuses[sess_id] = SessionStatus.EXPIRED
             else:
                 statuses[sess_id] = SessionStatus.VALID

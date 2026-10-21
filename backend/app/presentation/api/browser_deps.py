@@ -6,15 +6,15 @@ _control: IBrowserControl | None = None
 _uow_factory = None
 
 
-def configure_browser_control(uow_factory, max_contexts, schema_check):
+def configure_browser_control(uow_factory, max_contexts, schema_check, *, read_factory=None):
     from app.core.config import settings
     from app.infrastructure.automation.adspower_settings import AdsPowerSettings
     from app.infrastructure.automation.adspower_session import build_service
     global _control, _uow_factory
     browser_settings = AdsPowerSettings(_env_file=settings.model_config.get("env_file"))
     _control = build_service(uow_factory, browser_settings,
-        max_sessions=max_contexts, schema_check=schema_check)
-    _uow_factory = uow_factory
+        max_sessions=max_contexts, schema_check=schema_check, read_factory=read_factory)
+    _uow_factory = read_factory if read_factory is not None else uow_factory
     return _control
 
 

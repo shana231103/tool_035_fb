@@ -116,5 +116,7 @@ class IAuthUnitOfWorkFactory(ABC):
 
 class ISystemUnitOfWorkFactory(ABC):
     @abstractmethod
-    def open(self, purpose: SystemPurpose) -> AsyncContextManager[ISystemUnitOfWork]:
+    def open(
+        self, purpose: SystemPurpose, *, write: bool = True
+    ) -> AsyncContextManager[ISystemUnitOfWork]:
         raise NotImplementedError

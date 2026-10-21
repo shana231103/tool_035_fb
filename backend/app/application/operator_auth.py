@@ -1,19 +1,17 @@
 # File: backend/app/application/operator_auth.py
 """Operator authentication service handling login issuance, validation, and logout."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Callable, Optional
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from app.application.operator_records import LoginCommand, SessionGrant, SessionView
+from app.application.operator_session_validation import OperatorSessionValidator
 from app.application.unit_of_work import IAuthUnitOfWork
-from app.domain.entities.operator_account import OperatorAccount
 from app.domain.exceptions.operator_errors import (
     AuthenticationRequiredError,
     CsrfInvalidError,
     InvalidCredentialsError,
-    SessionExpiredError,
-    SessionRevokedError,
     StaleLoginProofError,
 )
 from app.domain.ports.operator_security import (
@@ -23,7 +21,6 @@ from app.domain.ports.operator_security import (
     ISessionSecrets,
 )
 from app.domain.value_objects.operator_identity import (
-    OperatorAccountStatus,
     OperatorPrincipal,
     SessionRecord,
 )
@@ -127,31 +124,8 @@ class OperatorAuthService:
             raise AuthenticationRequiredError()
 
         digest = self._secrets.digest(cookie)
-        now = self._clock.now()
-
-        async with self._uow(write=touch) as uow:
-            record = await uow.sessions.get_by_digest(digest)
-            if not record:
-                raise AuthenticationRequiredError()
-            if record.revoked_at is not None:
-                raise SessionRevokedError()
-            if now > record.expires_at or now > record.idle_expires_at:
-                raise SessionExpiredError()
-
-            account = await uow.accounts.get(record.operator_id)
-            if not account or not account.is_active or account.auth_version != record.auth_version:
-                raise SessionRevokedError("Account disabled or credentials changed")
-
-            if touch:
-                await uow.sessions.touch(record.id, record.auth_version, now)
-                await uow.commit()
-
-        return OperatorPrincipal(
-            operator_id=record.operator_id,
-            session_id=record.id,
-            auth_version=record.auth_version,
-            absolute_expires_at=record.expires_at,
-            idle_expires_at=record.idle_expires_at,
+        return await OperatorSessionValidator(self._uow, self._clock).authenticate(
+            digest, touch=touch,
         )
 
     async def session(self, cookie: Optional[str]) -> SessionView:

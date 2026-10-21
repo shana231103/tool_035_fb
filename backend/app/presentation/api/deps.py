@@ -42,7 +42,9 @@ from app.presentation.ws.socket_manager import socket_manager
 # Singleton instances
 _browser_control = configure_browser_control(
     lambda: SystemUnitOfWorkFactory(db_manager).open(SystemPurpose.PROVIDER_LEDGER),
-    settings.max_browser_contexts, lambda: check_browser_schema(db_manager))
+    settings.max_browser_contexts, lambda: check_browser_schema(db_manager),
+    read_factory=lambda: SystemUnitOfWorkFactory(db_manager).open(
+        SystemPurpose.PROVIDER_LEDGER, write=False))
 _storage_service = LocalStorageService(
     base_storage_dir=settings.base_storage_dir,
     public_base_url=settings.public_base_url,
