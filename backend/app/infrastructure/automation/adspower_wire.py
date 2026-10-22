@@ -104,9 +104,9 @@ class ProfileDraft:
                     "screen_resolution": "1366_768",
                     "webrtc": "disabled",
                     "language_switch": "0",
-                    "language": ["en-US", "en"],
+                    "language": ["en-GB", "en"],
                     "page_language_switch": "0",
-                    "page_language": "en-US",
+                    "page_language": "en-GB",
                 }, "user_proxy_config": proxy}
 
 

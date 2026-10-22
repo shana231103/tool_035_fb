@@ -4,6 +4,7 @@ import asyncio
 from uuid import uuid4
 
 from app.application.owned_tasks import OwnedTasks, current_ownership, current_stop_request
+from app.application.task_drain_diagnostics import drain_stage, emit_drain
 from app.application.task_runtime_records import (
     AdmissionToken, OwnedWorkKind, RuntimeSnapshot, StagedHandle,
 )
@@ -75,12 +76,15 @@ class TaskRuntime:
 
     def _retain_blocked(self, handle, safe_code):
         handle.state, handle.safe_code = "BLOCKED", safe_code
+        emit_drain("RUNTIME_BLOCKED", grant=handle.grant, recovery_reason=safe_code,
+                   runtime_phase=handle.state, runtime_busy=self.is_busy, runtime_blocked=True)
 
     async def _run_gated(self, handle):
         await handle.gate.wait()
         if handle.state == "ABORTED":
             return
         grant = handle.grant
+        emit_drain("RUNTIME_RUN", grant=grant, result="BEGIN", runtime_phase=handle.state)
         try:
             async with self._factory.execution(grant) as uow:
                 await uow.slot.set_phase(grant, SlotPhase.ADMITTED, SlotPhase.RUNNING)
@@ -105,7 +109,11 @@ class TaskRuntime:
                 self._handle, self._token = None, None
             else:
                 self._retain_blocked(handle, outcome.safe_code)
-        except BaseException:
+            emit_drain("RUNTIME_RUN", grant=grant, result="COMPLETE",
+                       runtime_phase=handle.state, runtime_busy=self.is_busy)
+        except BaseException as error:
+            emit_drain("RUNTIME_RUN", grant=grant, error=error, result="ERROR",
+                       runtime_phase=handle.state)
             self._retain_blocked(handle, "EXECUTION_RECOVERY_REQUIRED")
 
     def _request_stop(self, grant):
@@ -140,6 +148,8 @@ class TaskRuntime:
     async def shutdown(self, deadline=None, *, timeout=10):
         self.close_admission()
         handle = self._handle
+        emit_drain("RUNTIME_SHUTDOWN_BEGIN", grant=handle.grant if handle else None,
+                   runtime_busy=self.is_busy, runtime_phase=handle.state if handle else "FREE")
         if handle is None:
             return
         if handle.state == "STAGED":
@@ -149,6 +159,13 @@ class TaskRuntime:
         if handle.state == "ACTIVE" and not handle.task.done():
             handle.task.cancel()
         remaining = max(0, (deadline or self._clock.monotonic() + timeout) - self._clock.monotonic())
-        await asyncio.wait({handle.task}, timeout=remaining)
+        with drain_stage("RUNTIME_SHUTDOWN_WAIT", grant=handle.grant):
+            done, _ = await asyncio.wait({handle.task}, timeout=remaining)
+        emit_drain("RUNTIME_SHUTDOWN_WAIT", grant=handle.grant, result="COMPLETE",
+                   runtime_phase=handle.state, runtime_busy=self.is_busy,
+                   workflow_done=handle.task in done)
         if handle.state != "RELEASED":
             self._retain_blocked(handle, "SHUTDOWN_DRAIN_UNKNOWN")
+            emit_drain("RUNTIME_SHUTDOWN_RETAINED", grant=handle.grant,
+                       runtime_busy=self.is_busy, runtime_blocked=True,
+                       workflow_done=handle.task in done, runtime_phase=handle.state)
