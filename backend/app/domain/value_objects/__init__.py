@@ -8,7 +8,6 @@ from app.domain.value_objects.enums import (
     ViolationType,
 )
 from app.domain.value_objects.target_url import TargetUrl
-from app.domain.value_objects.report_targets import ReportTargets
 from app.domain.value_objects.original_url import OriginalUrl
 from app.domain.value_objects.email_address import EmailAddress
 from app.domain.value_objects.explanation import ExplanationText
@@ -21,7 +20,6 @@ __all__ = [
     "PlatformType",
     "ViolationType",
     "TargetUrl",
-    "ReportTargets",
     "OriginalUrl",
     "EmailAddress",
     "ExplanationText",

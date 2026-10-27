@@ -98,13 +98,5 @@ export const useProxyStore = defineStore("proxies", {
         this.error = err.response?.data?.detail || err.message;
       }
     },
-
-    resetForAuth(epoch) {
-      this.proxies = [];
-      this.profiles = [];
-      this.isLoading = false;
-      this.testingProxyId = null;
-      this.error = null;
-    },
   },
 });

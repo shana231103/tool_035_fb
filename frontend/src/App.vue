@@ -2,7 +2,7 @@
 <template>
   <div class="min-h-screen bg-slate-950 flex flex-col font-sans">
     <!-- Top Navigation Header -->
-    <header v-if="authStore.isAuthenticated" class="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <!-- Logo & Branding -->
         <div class="flex items-center gap-3">
@@ -12,10 +12,7 @@
             </svg>
           </div>
           <div>
-            <div class="flex items-center gap-2">
-              <h1 class="font-extrabold text-white text-base leading-none tracking-tight">Meta Copyright Reporter</h1>
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">v2.0</span>
-            </div>
+            <h1 class="font-extrabold text-white text-base leading-none tracking-tight">Meta Copyright Reporter</h1>
             <span class="text-[10px] text-indigo-400 font-semibold uppercase tracking-wider">Automated DMCA Enforcement</span>
           </div>
         </div>
@@ -30,11 +27,11 @@
             Dashboard
           </router-link>
           <router-link
-            to="/tasks"
+            to="/jobs"
             active-class="bg-indigo-600/10 text-indigo-400 border-indigo-500/30"
             class="px-3 py-1.5 rounded-xl border border-transparent text-xs font-semibold text-slate-300 hover:text-white transition"
           >
-            Tác vụ & Lịch sử
+            History & Archive
           </router-link>
 
           <div class="h-4 w-px bg-slate-800 mx-2"></div>
@@ -60,20 +57,6 @@
           <button @click="isMailboxModalOpen = true" class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-300 hover:text-white">
             Microsoft mailbox
           </button>
-
-          <div class="h-4 w-px bg-slate-800 mx-2"></div>
-
-          <!-- Operator Info & Logout Button -->
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-medium text-slate-300">{{ authStore.operator?.username }}</span>
-            <button
-              @click="handleLogout"
-              class="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 hover:text-rose-400 text-xs font-semibold text-slate-400 transition"
-              title="Sign out"
-            >
-              Sign out
-            </button>
-          </div>
         </nav>
       </div>
     </header>
@@ -84,11 +67,9 @@
     </main>
 
     <!-- Modals -->
-    <template v-if="authStore.isAuthenticated">
-      <ProxyManagerModal :isOpen="isProxyModalOpen" @close="isProxyModalOpen = false" />
-      <ProfileManagerModal :isOpen="isProfileModalOpen" @close="isProfileModalOpen = false" />
-      <MicrosoftMailboxModal :isOpen="isMailboxModalOpen" @close="isMailboxModalOpen = false" />
-    </template>
+    <ProxyManagerModal :isOpen="isProxyModalOpen" @close="isProxyModalOpen = false" />
+    <ProfileManagerModal :isOpen="isProfileModalOpen" @close="isProfileModalOpen = false" />
+    <MicrosoftMailboxModal :isOpen="isMailboxModalOpen" @close="isMailboxModalOpen = false" />
   </div>
 </template>
 
@@ -97,17 +78,10 @@ import { ref } from "vue";
 import ProfileManagerModal from "./components/ProfileManagerModal.vue";
 import ProxyManagerModal from "./components/ProxyManagerModal.vue";
 import MicrosoftMailboxModal from "./components/MicrosoftMailboxModal.vue";
-import { useAuthStore } from "./stores/authStore";
-import { authLifecycle } from "./services/authLifecycle";
 import { useProxyStore } from "./stores/proxyStore";
 
-const authStore = useAuthStore();
 const proxyStore = useProxyStore();
 const isProxyModalOpen = ref(false);
 const isProfileModalOpen = ref(false);
 const isMailboxModalOpen = ref(false);
-
-async function handleLogout() {
-  await authLifecycle.logout();
-}
 </script>

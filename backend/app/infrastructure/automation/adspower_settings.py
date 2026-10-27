@@ -12,7 +12,7 @@ class AdsPowerSettings(BaseSettings):
     api_key: SecretStr = Field(default_factory=lambda: SecretStr(""), repr=False)
     provider_binding_id: UUID | None = None
     group_id: str = ""
-    max_profile_sessions: int = Field(1, ge=1, le=10)
+    max_profile_sessions: int = Field(3, ge=1, le=10)
     api_rps: float = Field(1, gt=0, le=20)
     connect_timeout: float = Field(3, gt=0, le=30)
     read_timeout: float = Field(10, gt=0, le=60)

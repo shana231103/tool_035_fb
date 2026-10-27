@@ -21,15 +21,3 @@ class IEventNotifier(ABC):
     ) -> None:
         """Broadcasts single task state change, log line, or submission result."""
         raise NotImplementedError
-
-    @abstractmethod
-    async def broadcast_standalone_task_update(
-        self,
-        task_id: str,
-        version: int,
-        attempt_id: Any,
-        payload: Dict[str, Any],
-        owner_id: Any = None,
-    ) -> None:
-        """Broadcasts standalone task state change or progress update."""
-        raise NotImplementedError

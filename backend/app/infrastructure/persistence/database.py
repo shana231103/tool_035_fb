@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import event
-from app.infrastructure.persistence.database_connection import build_async_engine_options
 
 Base = declarative_base()
 
@@ -19,9 +18,17 @@ class DatabaseSessionManager:
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
     def init(self, db_url: str, echo: bool = False) -> None:
-        url, options = build_async_engine_options(db_url, echo=echo)
-        self._engine = create_async_engine(url, **options)
-        if url.get_backend_name() == "sqlite":
+        connect_args = {}
+        if "sqlite" in db_url:
+            connect_args = {"check_same_thread": False}
+
+        self._engine = create_async_engine(
+            db_url,
+            echo=echo,
+            future=True,
+            connect_args=connect_args,
+        )
+        if "sqlite" in db_url:
             @event.listens_for(self._engine.sync_engine, "connect")
             def configure_sqlite(connection, _record):
                 cursor = connection.cursor()
@@ -45,40 +52,8 @@ class DatabaseSessionManager:
     async def create_all_tables(self) -> None:
         if not self._engine:
             raise RuntimeError("Database engine is not initialized.")
-        if self._engine.dialect.name != "sqlite":
-            raise RuntimeError(
-                "Initialize PostgreSQL explicitly: python -m alembic "
-                "-c backend/alembic_postgres.ini upgrade head"
-            )
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            def ensure_alembic_stamp(connection):
-                from sqlalchemy import inspect, text
-                inspector = inspect(connection)
-                tables = set(inspector.get_table_names())
-                if "alembic_version" not in tables:
-                    connection.execute(text(
-                        "CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL, "
-                        "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
-                    ))
-                    connection.execute(text(
-                        "INSERT INTO alembic_version (version_num) VALUES ('006_single_task_repair')"
-                    ))
-                else:
-                    revisions = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
-                    if not revisions:
-                        connection.execute(text(
-                            "INSERT INTO alembic_version (version_num) VALUES ('006_single_task_repair')"
-                        ))
-                if "operator_accounts" in tables:
-                    acc_rows = connection.execute(text("SELECT id FROM operator_accounts WHERE id = '00000000-0000-0000-0000-000000000001'")).fetchall()
-                    if not acc_rows:
-                        connection.execute(text(
-                            "INSERT INTO operator_accounts "
-                            "(id, username_key, username_display, password_hash, status, auth_version, run_version, created_at, updated_at) "
-                            "VALUES ('00000000-0000-0000-0000-000000000001', 'system_default', 'system_default', 'dummy_hash', 'QUARANTINED', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-                        ))
-            await conn.run_sync(ensure_alembic_stamp)
 
     async def validate_schema(self, validator) -> None:
         if not self._engine:

@@ -50,7 +50,6 @@ class AutomationSubmissionParams:
     owner_role: str = ""
     attempt_id: str = ""
     mailbox_binding: MailboxBinding | None = None
-    target_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

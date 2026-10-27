@@ -1,5 +1,6 @@
 # File: backend/app/infrastructure/persistence/mappers.py
 from uuid import UUID
+from app.domain.entities.batch_job import BatchJob
 from app.domain.entities.owner_profile import OwnerProfile
 from app.domain.entities.proxy_item import ProxyItem
 from app.domain.entities.report_task import ReportTask
@@ -8,6 +9,8 @@ from app.domain.value_objects.enums import OwnerRole, JobStatus, PlatformType, P
 from app.domain.value_objects.explanation import ExplanationText
 from app.domain.value_objects.original_url import OriginalUrl
 from app.domain.value_objects.target_url import TargetUrl
+from app.infrastructure.persistence.bulk_import_mapping import (
+    assignment_from_model, assignment_to_fields, bulk_from_model, bulk_to_fields, validate_job_assignments)
 from app.infrastructure.persistence.models import (
     BatchJobModel,
     OwnerProfileModel,
@@ -30,7 +33,6 @@ class DataMapper:
             owner_role=OwnerRole(m.owner_role) if m.owner_role else None,
             organization_name=m.organization_name or "",
             created_at=m.created_at,
-            operator_id=UUID(m.operator_account_id) if getattr(m, "operator_account_id", None) else None,
         )
 
     @staticmethod
@@ -46,7 +48,6 @@ class DataMapper:
             owner_role=e.owner_role.value if e.owner_role else None,
             organization_name=e.organization_name,
             created_at=e.created_at,
-            operator_account_id=str(e.operator_id) if e.operator_id else None,
         )
 
     @staticmethod
@@ -64,8 +65,6 @@ class DataMapper:
             consecutive_failures=m.consecutive_failures,
             created_at=m.created_at,
             last_checked_at=m.last_checked_at,
-            deleted_at=getattr(m, "deleted_at", None),
-            operator_id=UUID(m.operator_account_id) if getattr(m, "operator_account_id", None) else None,
         )
 
     @staticmethod
@@ -83,8 +82,6 @@ class DataMapper:
             consecutive_failures=e.consecutive_failures,
             created_at=e.created_at,
             last_checked_at=e.last_checked_at,
-            deleted_at=e.deleted_at,
-            operator_account_id=str(e.operator_id) if e.operator_id else None,
         )
 
     @staticmethod
@@ -114,7 +111,7 @@ class DataMapper:
             receipt_text=m.receipt_text,
             created_at=m.created_at,
             completed_at=m.completed_at,
-            operator_id=UUID(m.operator_account_id) if getattr(m, "operator_account_id", None) else None,
+            assignment=assignment_from_model(m), dispatch_revision=m.dispatch_revision, waiting_reason=m.waiting_reason,
         )
 
     @staticmethod
@@ -142,5 +139,40 @@ class DataMapper:
             receipt_text=e.receipt_text,
             created_at=e.created_at,
             completed_at=e.completed_at,
-            operator_account_id=str(e.operator_id) if e.operator_id else None,
+            **assignment_to_fields(e.assignment), dispatch_revision=e.dispatch_revision, waiting_reason=e.waiting_reason,
+        )
+
+    @staticmethod
+    def job_to_domain(m: BatchJobModel) -> BatchJob:
+        job = BatchJob(
+            id=UUID(m.id),
+            name=m.name,
+            owner_profile_id=UUID(m.owner_profile_id),
+            preferred_country=ProxyCountry(m.preferred_country) if m.preferred_country else None,
+            concurrency=m.concurrency,
+            delay_min=m.delay_min,
+            delay_max=m.delay_max,
+            status=JobStatus(m.status),
+            created_at=m.created_at,
+            completed_at=m.completed_at,
+            tasks=[DataMapper.task_to_domain(t) for t in (m.tasks or [])],
+            bulk=bulk_from_model(m),
+        )
+        validate_job_assignments(job)
+        return job
+
+    @staticmethod
+    def job_to_model(e: BatchJob) -> BatchJobModel:
+        return BatchJobModel(
+            id=str(e.id),
+            name=e.name,
+            owner_profile_id=str(e.owner_profile_id),
+            preferred_country=e.preferred_country.value if e.preferred_country else None,
+            concurrency=e.concurrency,
+            delay_min=e.delay_min,
+            delay_max=e.delay_max,
+            status=e.status.value,
+            created_at=e.created_at,
+            completed_at=e.completed_at,
+            **bulk_to_fields(e.bulk),
         )

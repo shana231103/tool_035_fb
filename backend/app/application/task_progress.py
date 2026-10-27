@@ -1,34 +1,44 @@
 # File: backend/app/application/task_progress.py
-"""Fresh aggregate progress, persisted before owner-scoped invalidation."""
 import logging
-
+from typing import Callable
+from app.application.unit_of_work import IUnitOfWork
+from app.application.job_serialization import task_to_dto
+from app.application.dtos.verification_dtos import safe_verification_metadata
+from app.domain.entities.report_task import ReportTask
+from app.domain.ports.notifier import IEventNotifier
 from app.domain.value_objects.enums import TaskStatus
+from app.application.browser_receipts import copy_task_state
+
+logger = logging.getLogger(__name__)
 
 
 class ProgressStore:
-    def __init__(self, factory, notifier, authority):
-        self._factory, self._notifier, self._authority = factory, notifier, authority
+    def __init__(self, factory: Callable[[], IUnitOfWork], notifier: IEventNotifier):
+        self._factory = factory
+        self._notifier = notifier
 
-    async def persist(self, grant, status, metadata):
-        async with self._factory.execution(grant) as uow:
-            if status == TaskStatus.SUBMITTING:
-                task = await self._authority.match_grant(uow, grant)
-                if task.status != TaskStatus.SUBMITTING:
-                    raise ValueError("EXECUTION_GRANT_MISMATCH")
-            else:
-                task = await self._authority.require_run(uow, grant)
-                version = task.version
-                task.mark_progress(status, {"stage": metadata.stage,
-                    "completed": metadata.completed, "total": metadata.total})
-                await uow.tasks.save(task, expected_version=version, expected_attempt_id=grant.attempt_id)
-                await uow.commit()
+    async def save(self, task: ReportTask) -> None:
+        await self.persist(task)
         await self.notify(task)
-        return task
 
-    async def notify(self, task):
+    async def persist(self, task: ReportTask) -> None:
+        task.verification = safe_verification_metadata(task.verification)
+        async with self._factory() as uow:
+            fresh = await uow.tasks.get_by_id(task.id)
+            if (fresh is None or fresh.attempt_id != task.attempt_id
+                    or fresh.dispatch_revision != task.dispatch_revision):
+                raise ValueError("Task attempt changed before progress persistence.")
+            if fresh.status == TaskStatus.SUBMITTED:
+                copy_task_state(task, fresh)
+                return
+            if (fresh.status in (TaskStatus.SUBMITTING, TaskStatus.NEEDS_REVIEW)
+                    and task.status not in (TaskStatus.SUBMITTING, TaskStatus.NEEDS_REVIEW)):
+                raise ValueError("Submission outcome requires reconciliation.")
+            await uow.tasks.save(task)
+
+    async def notify(self, task: ReportTask) -> None:
+        payload = task_to_dto(task).model_dump(mode="json")
         try:
-            await self._notifier.broadcast_standalone_task_update(
-                str(task.id), task.version, task.attempt_id,
-                {"status": task.status.value}, owner_id=task.operator_id)
+            await self._notifier.broadcast_task_update(str(task.batch_job_id), str(task.id), payload)
         except Exception:
-            logging.getLogger(__name__).warning("TASK_NOTIFICATION_FAILED")
+            logger.warning("Task notification failed after persistence: %s", task.id)

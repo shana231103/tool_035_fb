@@ -14,14 +14,12 @@
 backend/.env
 backend/.env.*
 !backend/.env.example
-!backend/.env.supabase.example
 frontend/.env.local
 frontend/.env.*.local
 *.pem
 *.key
 *.cert
 *.crt
-!backend/certs/supabase-root.crt
 *.pfx
 *.p12
 
@@ -47,10 +45,8 @@ alembic_cli_*.db
 # ------------------------------------------------------------------------------
 # 3. Runtime Media Storage, Uploads & Screenshots
 # ------------------------------------------------------------------------------
-storage/
-backend/storage/
-storage
-backend/storage
+/storage/
+/backend/storage/
 
 # ------------------------------------------------------------------------------
 # 4. Scratch & Temporary Files (Internal Dev/Testing)

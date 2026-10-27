@@ -37,18 +37,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = Field(default_factory=_get_default_database_url)
-    database_migration_url: str | None = None
     database_echo: bool = False
-
-    # Operator deployment & ingress
-    operator_deployment_mode: str = Field(
-        default="local",
-        validation_alias=AliasChoices("OPERATOR_DEPLOYMENT_MODE", "operator_deployment_mode"),
-    )
-    operator_public_origin: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("OPERATOR_PUBLIC_ORIGIN", "operator_public_origin"),
-    )
 
     # Storage paths
     base_storage_dir: str = Field(default_factory=_get_default_storage_dir)
@@ -62,7 +51,7 @@ class Settings(BaseSettings):
     email_slot_timeout: int = Field(1800, ge=1)
     max_code_attempts: int = Field(5, ge=1, le=10)
     max_code_resends: int = Field(2, ge=0, le=5)
-    max_browser_contexts: int = Field(5, ge=1, le=10)
+    max_browser_contexts: int = Field(3, ge=1, le=10)
     anticaptcha_api_key: str = "a31e63ea8e8e9055927db54467a55da9"
     anticaptcha_timeout: float = Field(120.0, ge=10, le=600)
 
@@ -139,34 +128,6 @@ class Settings(BaseSettings):
         if (parsed.scheme != "https" or parsed.netloc != "login.microsoftonline.com" or
                 not parsed.path.strip("/") or parsed.query or parsed.fragment):
             raise ValueError("Microsoft authority must use the trusted HTTPS login host.")
-        return value
-
-    @field_validator("operator_deployment_mode")
-    @classmethod
-    def validate_deployment_mode(cls, value: str) -> str:
-        clean = (value or "local").lower().strip()
-        if clean not in ("local", "hosted"):
-            raise ValueError("OPERATOR_DEPLOYMENT_MODE must be 'local' or 'hosted'.")
-        return clean
-
-    @field_validator("operator_public_origin")
-    @classmethod
-    def validate_public_origin(cls, value: str | None) -> str | None:
-        if value is not None:
-            value = value.strip().rstrip("/")
-            parsed = urlsplit(value)
-            if (
-                parsed.scheme != "https"
-                or not parsed.hostname
-                or parsed.path
-                or parsed.query
-                or parsed.fragment
-                or parsed.username
-                or parsed.password
-            ):
-                raise ValueError(
-                    "OPERATOR_PUBLIC_ORIGIN must be a canonical HTTPS URL (e.g. https://domain[:port])."
-                )
         return value
 
     model_config = SettingsConfigDict(

@@ -1,6 +1,5 @@
 # File: backend/app/infrastructure/mail/mailbox_registry.py
 from dataclasses import dataclass
-from uuid import UUID
 
 from app.domain.exceptions.mailbox_errors import MailboxError
 from app.domain.value_objects.mailbox_verification import MailboxBinding, MailboxConnectionView
@@ -24,8 +23,6 @@ class MailboxRecord:
     reason: str | None = None
     cleanup_complete: bool = False
     initializing: bool = False
-    owner: UUID | None = None
-    session_id: UUID | None = None
 
 
 class MailboxRegistry:
@@ -51,13 +48,13 @@ class MailboxRegistry:
         for key in eligible[:remove]:
             self.records.pop(key)
 
-    def reserve(self, connection_id, owner=None, session_id=None):
+    def reserve(self, connection_id):
         if connection_id in self.records:
             raise MailboxError("BUSY")
         self.prune(reserve=True)
         if len(self.records) >= self.max_records:
             raise MailboxError("BUSY")
-        record = MailboxRecord(connection_id, initializing=True, owner=owner, session_id=session_id)
+        record = MailboxRecord(connection_id, initializing=True)
         self.records[connection_id] = record
         return record
 
@@ -77,23 +74,19 @@ class MailboxRegistry:
             raise MailboxError("AUTH_REQUIRED" if record.status != "connected" else "MAPPING_INVALID")
         mapping = record.mapping
         return MailboxBinding(record.id, record.generation, record.revision, mapping.meta_email,
-                              mapping.folders, mapping.template_version, operator_id=record.owner)
+                              mapping.folders, mapping.template_version)
 
     def assert_current(self, binding):
         record = self.get(binding.connection_id)
         if record.status != "connected" or record.generation != binding.generation:
-            raise MailboxError("DISCONNECTED")
-        if binding.operator_id is not None and record.owner != binding.operator_id:
             raise MailboxError("DISCONNECTED")
         if self.binding(record) != binding:
             raise MailboxError("STALE")
         if binding.template_version not in self.evidence_versions:
             raise MailboxError("EVIDENCE_REQUIRED")
 
-    def set_mapping(self, connection_id, mapping, owner=None):
+    def set_mapping(self, connection_id, mapping):
         record = self.get(connection_id)
-        if owner is not None and record.owner != owner:
-            raise MailboxError("DISCONNECTED")
         if self.mapping_busy(connection_id):
             raise MailboxError("BUSY")
         if record.status != "connected":
@@ -109,11 +102,6 @@ class MailboxRegistry:
                 raise MailboxError("MAPPING_INVALID")
         record.mapping, record.revision = mapping, record.revision + 1
         return self.binding(record)
-
-    def cancel_pending_for_session(self, session_id: UUID) -> None:
-        for record in list(self.records.values()):
-            if record.status == "pending" and record.session_id == session_id:
-                self.revoke(record.id)
 
     def revoke(self, connection_id):
         record = self.records.get(connection_id)

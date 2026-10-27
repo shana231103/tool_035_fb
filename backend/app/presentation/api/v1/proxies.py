@@ -10,21 +10,8 @@ from app.application.dtos.proxy_dtos import (
 from app.application.use_cases.manage_proxies import ManageProxiesUseCase
 from app.domain.exceptions.domain_exceptions import EntityNotFoundError
 from app.presentation.api.deps import get_manage_proxies_use_case
-from app.presentation.api.operator_auth import (
-    get_current_principal,
-    require_csrf,
-    require_session_context,
-)
 
-router = APIRouter(
-    prefix="/proxies",
-    tags=["Proxies"],
-    dependencies=[
-        Depends(get_current_principal),
-        Depends(require_csrf),
-        Depends(require_session_context),
-    ],
-)
+router = APIRouter(prefix="/proxies", tags=["Proxies"])
 
 
 @router.post("", response_model=ProxyResponseDTO, status_code=status.HTTP_201_CREATED)

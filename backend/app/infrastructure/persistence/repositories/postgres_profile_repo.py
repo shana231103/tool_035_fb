@@ -10,47 +10,24 @@ from app.infrastructure.persistence.models import OwnerProfileModel
 
 
 class PostgresProfileRepository(IOwnerProfileRepository):
-    def __init__(self, session: AsyncSession, operator_id: Optional[UUID] = None):
+    def __init__(self, session: AsyncSession):
         self._session = session
-        self._operator_id = operator_id
-
-    @property
-    def operator_id(self) -> Optional[UUID]:
-        return self._operator_id
 
     async def get_by_id(self, profile_id: UUID) -> Optional[OwnerProfile]:
-        stmt = select(OwnerProfileModel).where(OwnerProfileModel.id == str(profile_id))
-        if self._operator_id:
-            stmt = stmt.where(
-                OwnerProfileModel.operator_account_id == str(self._operator_id)
-            )
-        res = await self._session.execute(stmt)
-        model = res.scalar_one_or_none()
+        model = await self._session.get(OwnerProfileModel, str(profile_id))
         return DataMapper.profile_to_domain(model) if model else None
 
     async def list_all(self) -> List[OwnerProfile]:
         stmt = select(OwnerProfileModel).order_by(OwnerProfileModel.created_at.desc())
-        if self._operator_id:
-            stmt = stmt.where(
-                OwnerProfileModel.operator_account_id == str(self._operator_id)
-            )
         result = await self._session.execute(stmt)
         models = result.scalars().all()
         return [DataMapper.profile_to_domain(m) for m in models]
 
     async def save(self, profile: OwnerProfile) -> None:
-        if self._operator_id:
-            profile.operator_id = self._operator_id
-
         model = await self._session.get(OwnerProfileModel, str(profile.id))
         if not model:
-            model = DataMapper.profile_to_model(profile)
-            if self._operator_id:
-                model.operator_account_id = str(self._operator_id)
-            self._session.add(model)
+            self._session.add(DataMapper.profile_to_model(profile))
         else:
-            if self._operator_id and model.operator_account_id != str(self._operator_id):
-                return
             model.full_name = profile.full_name
             model.email = profile.email.value
             model.country = profile.country
@@ -62,8 +39,4 @@ class PostgresProfileRepository(IOwnerProfileRepository):
 
     async def delete(self, profile_id: UUID) -> None:
         stmt = delete(OwnerProfileModel).where(OwnerProfileModel.id == str(profile_id))
-        if self._operator_id:
-            stmt = stmt.where(
-                OwnerProfileModel.operator_account_id == str(self._operator_id)
-            )
         await self._session.execute(stmt)

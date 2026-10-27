@@ -11,7 +11,7 @@ from app.infrastructure.automation.adspower_recovery import BrowserRecovery
 
 
 def build_service(uow_factory, settings, *, max_sessions=None, maintenance=False,
-                  transport=None, driver_factory=None, schema_check=None, read_factory=None):
+                  transport=None, driver_factory=None, schema_check=None):
     from app.infrastructure.automation.adspower_session import AdsPowerSessionService
 
     if max_sessions is not None:
@@ -20,7 +20,7 @@ def build_service(uow_factory, settings, *, max_sessions=None, maintenance=False
     policy = AdsPowerPolicy(settings)
     identity = RuntimeIdentity(settings.identity_path)
     client = AdsPowerClient(settings, transport)
-    budget = BrowserResourceBudget(uow_factory, identity, policy, read_factory=read_factory)
+    budget = BrowserResourceBudget(uow_factory, identity, policy)
     cdp = AdsPowerCdp(policy, driver_factory)
     acquire = ProfileAcquireFlow(client, uow_factory, identity, budget, cdp, policy)
     cleanup = ProfileCleanupFlow(client, uow_factory, identity, budget, cdp, policy)

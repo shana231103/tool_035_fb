@@ -1,157 +1,146 @@
 # File: backend/app/infrastructure/persistence/repositories/postgres_task_repo.py
-"""SQLAlchemy implementation of IReportTaskRepository for standalone tasks."""
-
-import json
-from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
-
-from sqlalchemy import select, update
+from sqlalchemy import and_, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.domain.entities.report_task import ReportTask
-from app.domain.exceptions.domain_exceptions import LegacyTaskReadOnlyError
-from app.domain.exceptions.task_errors import StaleVersionError
 from app.domain.ports.repositories import IReportTaskRepository
-from app.domain.value_objects.enums import ProxyCountry, TaskStatus
-from app.domain.value_objects.explanation import ExplanationText
-from app.domain.value_objects.original_url import OriginalUrl
-from app.domain.value_objects.report_targets import ReportTargets
-from app.domain.value_objects.target_url import TargetUrl
-from app.infrastructure.persistence.task_models import ReportTaskModel
-
-
-def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+from app.domain.value_objects.enums import TaskStatus
+from app.infrastructure.persistence.mappers import DataMapper
+from app.infrastructure.persistence.models import ReportTaskModel
+from app.infrastructure.persistence.models import BatchJobModel
+from app.domain.value_objects.bulk_import import DispatchCursor, DispatchPage
+from app.infrastructure.persistence.bulk_import_mapping import assignment_from_model
+from app.infrastructure.persistence.repositories.bulk_import_repo import no_evidence, profile_matches
 
 
 class PostgresTaskRepository(IReportTaskRepository):
-    def __init__(self, session: AsyncSession, operator_id: Optional[UUID] = None):
+    def __init__(self, session: AsyncSession):
         self._session = session
-        self._operator_id = operator_id
-
-    @property
-    def operator_id(self) -> Optional[UUID]:
-        return self._operator_id
-
-    def _model_to_entity(self, m: ReportTaskModel) -> ReportTask:
-        if m.legacy_read_only or m.legacy_batch_job_id:
-            raise LegacyTaskReadOnlyError(
-                f"Task {m.id} is an archival legacy task and cannot be loaded as a runnable aggregate"
-            )
-        urls: List[str] = []
-        if m.target_urls_json:
-            try:
-                parsed = json.loads(m.target_urls_json)
-                if isinstance(parsed, list):
-                    urls = [str(u) for u in parsed]
-            except Exception:
-                urls = []
-        if not urls and m.target_url:
-            urls = [m.target_url]
-
-        targets = (
-            ReportTargets.from_urls(urls)
-            if urls
-            else ReportTargets.from_urls(["https://www.facebook.com/fallback/posts/1"])
-        )
-
-        return ReportTask(
-            id=UUID(m.id),
-            operator_id=UUID(m.operator_account_id),
-            owner_profile_id=UUID(m.owner_profile_id) if m.owner_profile_id else UUID("00000000-0000-0000-0000-000000000000"),
-            name=m.name or "Report Task",
-            targets=targets,
-            original_url=OriginalUrl(url=m.original_url),
-            explanation=ExplanationText(content=m.explanation),
-            preferred_country=ProxyCountry(m.preferred_country) if m.preferred_country else None,
-            status=TaskStatus(m.status),
-            version=m.version or 1,
-            run_version=m.run_version,
-            attempt_id=UUID(m.attempt_id) if m.attempt_id else None,
-            last_start_command_id=UUID(m.last_start_command_id) if m.last_start_command_id else None,
-            retry_count=m.retry_count or 0,
-            max_retries=m.max_retries or 3,
-            proxy_id=UUID(m.proxy_id) if m.proxy_id else None,
-            created_at=_ensure_utc(m.created_at) or datetime.now(timezone.utc),
-            updated_at=_ensure_utc(m.updated_at) or datetime.now(timezone.utc),
-            completed_at=_ensure_utc(m.completed_at),
-            input_snapshot=m.input_snapshot or {},
-            verification=m.verification or {},
-            submitted_at=_ensure_utc(m.submitted_at),
-            receipt_text=m.receipt_text,
-            meta_case_number=m.meta_case_number,
-            screenshot_path=m.screenshot_path,
-            error_message=m.error_message,
-        )
 
     async def get_by_id(self, task_id: UUID) -> Optional[ReportTask]:
-        stmt = select(ReportTaskModel).where(ReportTaskModel.id == str(task_id)).execution_options(populate_existing=True)
-        if self._operator_id:
-            stmt = stmt.where(ReportTaskModel.operator_account_id == str(self._operator_id))
-        res = await self._session.execute(stmt)
-        m = res.scalar_one_or_none()
-        return self._model_to_entity(m) if m else None
+        model = await self._session.get(ReportTaskModel, str(task_id))
+        return DataMapper.task_to_domain(model) if model else None
 
-    async def insert(self, task: ReportTask) -> None:
-        target_urls = list(task.targets.urls)
-        model = ReportTaskModel(
-            id=str(task.id),
-            operator_account_id=str(task.operator_id),
-            name=task.name,
-            owner_profile_id=str(task.owner_profile_id) if task.owner_profile_id else None,
-            preferred_country=task.preferred_country.value if task.preferred_country else None,
-            target_urls_json=json.dumps(target_urls),
-            target_url=target_urls[0] if target_urls else None,
-            original_url=task.original_url.url,
-            explanation=task.explanation.content,
-            status=task.status.value,
-            version=task.version,
-            run_version=task.run_version,
-            attempt_id=str(task.attempt_id) if task.attempt_id else None,
-            last_start_command_id=str(task.last_start_command_id) if task.last_start_command_id else None,
-            retry_count=task.retry_count,
-            max_retries=task.max_retries,
-            proxy_id=str(task.proxy_id) if task.proxy_id else None,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            completed_at=task.completed_at,
-            input_snapshot=task.input_snapshot,
-            verification=task.verification,
-            submitted_at=task.submitted_at,
-            receipt_text=task.receipt_text,
-            meta_case_number=task.meta_case_number,
-            screenshot_path=task.screenshot_path,
-            error_message=task.error_message,
-            legacy_read_only=False,
+    async def save(self, task: ReportTask) -> None:
+        model = await self._session.get(ReportTaskModel, str(task.id), populate_existing=True)
+        if not model:
+            self._session.add(DataMapper.task_to_model(task))
+        else:
+            if (assignment_from_model(model) != task.assignment or task.dispatch_revision < model.dispatch_revision
+                    or (task.attempt_id != model.attempt_id and task.dispatch_revision <= model.dispatch_revision)):
+                raise ValueError("Stale task state.")
+            if any(getattr(model, key) is not None and getattr(model, key) != getattr(task, key)
+                   for key in ("submitted_at", "receipt_text", "meta_case_number", "screenshot_path")):
+                raise ValueError("Submission evidence cannot be overwritten.")
+            if (model.input_snapshot and task.attempt_id == model.attempt_id and
+                    task.dispatch_revision == model.dispatch_revision and task.input_snapshot != model.input_snapshot):
+                raise ValueError("Attempt snapshot is immutable.")
+            mapped = DataMapper.task_to_model(task)
+            keys = ("status", "retry_count", "proxy_id", "meta_case_number", "screenshot_path",
+                    "error_message", "infringing_account", "completed_at", "attempt_id", "input_snapshot",
+                    "verification", "submitted_at", "receipt_text", "dispatch_revision", "waiting_reason")
+            table = ReportTaskModel
+            evidence = [getattr(table, key) == getattr(model, key) for key in
+                        ("submitted_at", "receipt_text", "meta_case_number", "screenshot_path")]
+            result = await self._session.execute(update(table).where(table.id == str(task.id),
+                table.attempt_id == model.attempt_id, table.dispatch_revision == model.dispatch_revision,
+                table.status == model.status, *evidence).values(**{key: getattr(mapped, key) for key in keys})
+                .execution_options(synchronize_session=False))
+            if result.rowcount != 1:
+                raise ValueError("Stale task state.")
+            self._session.expire(model)
+
+    async def list_dispatch_candidates(self, job_id, cursor=None, limit=100):
+        task = ReportTaskModel
+        bulk = await self._session.scalar(select(BatchJobModel.bulk_import_id).where(BatchJobModel.id == str(job_id)))
+        ordering = task.bulk_sequence if bulk else task.created_at
+        conditions = [task.batch_job_id == str(job_id), task.status == TaskStatus.QUEUED.value, *no_evidence()]
+        if cursor:
+            value = cursor.import_sequence if bulk else cursor.created_at
+            if value is None:
+                raise ValueError("Invalid dispatch cursor.")
+            conditions.append(or_(ordering > value, and_(ordering == value, task.id > str(cursor.id))))
+        size = min(max(limit, 1), 100)
+        result = await self._session.execute(select(task).where(*conditions).order_by(ordering, task.id).limit(size + 1))
+        models = result.scalars().all()
+        selected = models[:size]
+        next_cursor = None
+        if len(models) > size:
+            last = selected[-1]
+            next_cursor = DispatchCursor(last.bulk_sequence if bulk else None,
+                                         None if bulk else last.created_at, UUID(last.id))
+        return DispatchPage(tuple(DataMapper.task_to_domain(model) for model in selected), next_cursor)
+
+    async def claim_attempt(self, claim):
+        task, job = ReportTaskModel, BatchJobModel
+        snapshot_email = claim.snapshot.get("owner_email")
+        profile = claim.expected_profile
+        conditions = [job.id == str(claim.job_id), job.status == "RUNNING",
+                      job.owner_profile_id == str(profile.profile_id)]
+        if claim.expected_job_revision is not None:
+            conditions.extend([job.bulk_revision == claim.expected_job_revision,
+                job.bulk_profile_sha256 == claim.expected_bulk_profile_sha256,
+                job.bulk_import_id.is_not(None)])
+            email_condition = task.assigned_mail_email == snapshot_email if snapshot_email else False
+            profile_condition = profile_matches(profile)
+        else:
+            conditions.append(job.bulk_import_id.is_(None))
+            email_condition = task.assigned_mail_email.is_(None)
+            if not claim.expected_profile_email or snapshot_email != claim.expected_profile_email:
+                return False
+            profile_condition = profile_matches(profile, claim.expected_profile_email)
+        result = await self._session.execute(update(task).where(task.id == str(claim.task_id),
+            task.batch_job_id == str(claim.job_id), task.status == TaskStatus.QUEUED.value,
+            task.attempt_id == claim.expected_previous_attempt_id,
+            task.dispatch_revision == claim.expected_dispatch_revision, *no_evidence(), email_condition,
+            exists(select(job.id).where(*conditions)), profile_condition)
+            .values(status=TaskStatus.RUNNING.value, attempt_id=claim.new_attempt_id,
+                input_snapshot=dict(claim.snapshot), dispatch_revision=task.dispatch_revision + 1,
+                error_message=None, waiting_reason=None, completed_at=None)
+            .execution_options(synchronize_session=False))
+        return result.rowcount == 1
+
+    async def restore_unstarted(self, restore):
+        if not restore.proven_no_provider or not restore.collector_joined:
+            return False
+        claim, task = restore.claim, ReportTaskModel
+        result = await self._session.execute(update(task).where(task.id == str(claim.task_id),
+            task.batch_job_id == str(claim.job_id), task.status == TaskStatus.RUNNING.value,
+            task.attempt_id == claim.new_attempt_id,
+            task.dispatch_revision == claim.expected_dispatch_revision + 1, *no_evidence())
+            .values(status=TaskStatus.QUEUED.value, attempt_id=claim.expected_previous_attempt_id,
+                    input_snapshot={}, dispatch_revision=task.dispatch_revision + 1)
+            .execution_options(synchronize_session=False))
+        return result.rowcount == 1
+
+    async def save_wait_reason(self, task_id, expected_revision, reason):
+        task = ReportTaskModel
+        result = await self._session.execute(update(task).where(task.id == str(task_id),
+            task.status == TaskStatus.QUEUED.value, task.dispatch_revision == expected_revision,
+            *no_evidence()).values(waiting_reason=reason).execution_options(synchronize_session=False))
+        return result.rowcount == 1
+
+    async def get_next_queued_tasks(self, job_id: UUID, limit: int = 10) -> List[ReportTask]:
+        stmt = (
+            select(ReportTaskModel)
+            .where(
+                ReportTaskModel.batch_job_id == str(job_id),
+                ReportTaskModel.status.in_([TaskStatus.QUEUED.value, TaskStatus.PENDING.value]),
+            )
+            .order_by(ReportTaskModel.created_at)
+            .limit(limit)
         )
-        self._session.add(model)
-        await self._session.flush()
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [DataMapper.task_to_domain(m) for m in models]
 
-    async def save(self, task: ReportTask, *, expected_version: int, expected_attempt_id: Optional[UUID]) -> None:
-        if self._operator_id is not None and task.operator_id != self._operator_id:
-            raise StaleVersionError("Task owner does not match repository scope.")
-        if task.version != expected_version + 1:
-            raise StaleVersionError("A task mutation must advance exactly one version.")
-        model = ReportTaskModel
-        attempt = str(expected_attempt_id) if expected_attempt_id is not None else None
-        values = {name: getattr(task, name) for name in (
-            "version", "run_version", "retry_count", "meta_case_number", "screenshot_path",
-            "error_message", "completed_at", "input_snapshot", "verification", "submitted_at",
-            "receipt_text", "updated_at")}
-        values.update(status=task.status.value,
-                      attempt_id=str(task.attempt_id) if task.attempt_id else None,
-                      last_start_command_id=str(task.last_start_command_id) if task.last_start_command_id else None,
-                      proxy_id=str(task.proxy_id) if task.proxy_id else None)
-        result = await self._session.execute(update(model).where(
-            model.id == str(task.id), model.operator_account_id == str(task.operator_id),
-            model.version == expected_version, model.attempt_id == attempt,
-            model.legacy_read_only.is_(False), model.legacy_batch_job_id.is_(None),
-        ).values(**values).execution_options(synchronize_session=False))
-        if result.rowcount != 1:
-            raise StaleVersionError("Task version or attempt conflict.")
-        await self._session.flush()
+    async def list_tasks_by_job(self, job_id: UUID) -> List[ReportTask]:
+        stmt = (
+            select(ReportTaskModel)
+            .where(ReportTaskModel.batch_job_id == str(job_id))
+            .order_by(ReportTaskModel.created_at)
+        )
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [DataMapper.task_to_domain(m) for m in models]

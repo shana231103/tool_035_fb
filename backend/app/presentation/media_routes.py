@@ -4,34 +4,21 @@ import io
 import re
 import stat
 from pathlib import Path
-from typing import Optional
 from PIL import Image, UnidentifiedImageError
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from app.core.config import settings
-from app.domain.value_objects.operator_identity import ArtifactKind, OperatorPrincipal
-from app.presentation.api.operator_auth import get_current_principal
-from app.presentation.api.operator_composition import get_scoped_uow_factory
 
 router = APIRouter()
 _read_slot = asyncio.Semaphore(1)
-_HEADERS = {
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "sandbox; default-src 'none'",
-}
-
-
-async def _get_media_principal(request: Request) -> Optional[OperatorPrincipal]:
-    return await get_current_principal(request)
+_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'"}
 
 
 def _reparse(path):
     info = path.lstat()
-    return path.is_symlink() or bool(
-        getattr(info, "st_file_attributes", 0)
-        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)
-    )
+    return path.is_symlink() or bool(getattr(info, "st_file_attributes", 0) &
+                                    getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024))
 
 
 def _read_media(folder, filename, screenshot=False):
@@ -52,10 +39,7 @@ def _read_media(folder, filename, screenshot=False):
             if path.suffix.lower() != ".png":
                 raise HTTPException(404, "Media not found.")
             with Image.open(io.BytesIO(content), formats=["PNG"]) as image:
-                if (
-                    image.width * image.height > settings.max_proof_pixels
-                    or image.n_frames != 1
-                ):
+                if image.width * image.height > settings.max_proof_pixels or image.n_frames != 1:
                     raise HTTPException(404, "Media not found.")
                 image.verify()
             with Image.open(io.BytesIO(content), formats=["PNG"]) as image:
@@ -67,9 +51,7 @@ def _read_media(folder, filename, screenshot=False):
 
 async def _load(folder, filename, screenshot=False):
     async with _read_slot:
-        task = asyncio.create_task(
-            asyncio.to_thread(_read_media, folder, filename, screenshot)
-        )
+        task = asyncio.create_task(asyncio.to_thread(_read_media, folder, filename, screenshot))
         canceled = False
         while not task.done():
             try:
@@ -81,6 +63,7 @@ async def _load(folder, filename, screenshot=False):
                     raise
                 break
         if canceled:
+            # Retrieve errors before propagating cancellation; keep the slot until thread joins.
             if not task.cancelled():
                 task.exception()
             raise asyncio.CancelledError
@@ -88,33 +71,13 @@ async def _load(folder, filename, screenshot=False):
 
 
 @router.get("/static/uploads/{filename}")
-async def download_proof(
-    filename: str,
-    principal: Optional[OperatorPrincipal] = Depends(_get_media_principal),
-):
-    if principal is not None:
-        factory = get_scoped_uow_factory()
-        async with factory.operator(principal.operator_id) as uow:
-            record = await uow.artifacts.get_by_key(filename, ArtifactKind.PROOF)
-            if not record or record.operator_id != principal.operator_id:
-                raise HTTPException(404, "Media not found.")
+async def download_proof(filename: str):
     content = await _load("uploads", filename)
-    headers = dict(
-        _HEADERS, **{"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
+    headers = dict(_HEADERS, **{"Content-Disposition": f'attachment; filename="{filename}"'})
     return Response(content, media_type="application/octet-stream", headers=headers)
 
 
 @router.get("/static/screenshots/{filename}")
-async def view_screenshot(
-    filename: str,
-    principal: Optional[OperatorPrincipal] = Depends(_get_media_principal),
-):
-    if principal is not None:
-        factory = get_scoped_uow_factory()
-        async with factory.operator(principal.operator_id) as uow:
-            record = await uow.artifacts.get_by_key(filename, ArtifactKind.SCREENSHOT)
-            if not record or record.operator_id != principal.operator_id:
-                raise HTTPException(404, "Media not found.")
+async def view_screenshot(filename: str):
     content = await _load("screenshots", filename, True)
     return Response(content, media_type="image/png", headers=_HEADERS)

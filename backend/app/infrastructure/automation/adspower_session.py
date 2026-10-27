@@ -182,8 +182,7 @@ class AdsPowerSessionService(IBrowserControl):
 
 
 def build_service(uow_factory, settings, *, max_sessions=None, maintenance=False, transport=None,
-                  driver_factory=None, schema_check=None, read_factory=None):
+                  driver_factory=None, schema_check=None):
     from app.infrastructure.automation.adspower_composition import build_service as compose
     return compose(uow_factory, settings, max_sessions=max_sessions, maintenance=maintenance,
-        transport=transport, driver_factory=driver_factory, schema_check=schema_check,
-        read_factory=read_factory)
+        transport=transport, driver_factory=driver_factory, schema_check=schema_check)

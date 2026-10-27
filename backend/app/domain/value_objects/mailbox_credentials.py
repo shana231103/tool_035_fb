@@ -75,8 +75,6 @@ class MailboxAuthIdentity:
 class MailboxConnectReservation:
     id: str
     expires_at: datetime
-    owner: UUID | None = None
-    session_id: UUID | None = None
 
 
 AuthIdentity = MailboxAuthIdentity

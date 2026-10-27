@@ -1,6 +1,5 @@
 # File: backend/app/infrastructure/automation/adspower_wire.py
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -81,23 +80,12 @@ class ProfileDraft:
     def payload(self):
         proxy = {"proxy_soft": "no_proxy"}
         if self.proxy:
-            valid_until = getattr(self.proxy, "valid_until", None)
-            if valid_until is not None and datetime.now(timezone.utc) > valid_until:
-                raise AdsPowerTransportError("PROXY_ENDPOINT_EXPIRED")
-
-            proto = getattr(self.proxy, "protocol", getattr(self.proxy, "scheme", "http")).lower()
-            if proto == "https":
-                raise AdsPowerTransportError("UNSUPPORTED_PROXY_PROTOCOL")
-
-            connect_host = getattr(self.proxy, "connect_ip", getattr(self.proxy, "host", None))
-            proxy = {"proxy_soft": "other", "proxy_type": proto,
-                     "proxy_host": connect_host, "proxy_port": str(self.proxy.port)}
-            username = getattr(self.proxy, "username", None)
-            password = getattr(self.proxy, "password", None)
-            if username is not None:
-                proxy["proxy_user"] = username
-            if password is not None:
-                proxy["proxy_password"] = password
+            proxy = {"proxy_soft": "other", "proxy_type": self.proxy.scheme,
+                     "proxy_host": self.proxy.host, "proxy_port": str(self.proxy.port)}
+            if self.proxy.username is not None:
+                proxy["proxy_user"] = self.proxy.username
+            if self.proxy.password is not None:
+                proxy["proxy_password"] = self.proxy.password
         return {"group_id": self.group_id, "name": self.name, "remark": self.marker,
                 "fingerprint_config": {
                     "random_ua": {"ua_browser": ["chrome"], "ua_system_version": ["Windows 10"]},

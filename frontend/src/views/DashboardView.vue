@@ -1,42 +1,38 @@
 <!-- File: frontend/src/views/DashboardView.vue -->
 <template>
   <div class="space-y-8">
-    <p v-if="taskStore.error" role="alert" class="text-xs text-rose-300">{{ taskStore.error }}</p>
     <!-- Top KPI Metrics -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-indigo-500/50 transition shadow-lg">
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-indigo-500/50 transition">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Tổng URLs Vi Phạm</span>
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Infringements</span>
           <span class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">📊</span>
         </div>
-        <div class="text-3xl font-black text-white mt-3">{{ taskStore.totalInfringementsCount }}</div>
-        <p class="text-xs text-slate-500 mt-1">Ghi nhận qua các tác vụ</p>
+        <div class="text-3xl font-black text-white mt-3">{{ jobStore.totalInfringementsCount }}</div>
+        <p class="text-xs text-slate-500 mt-1">Processed across campaigns</p>
       </div>
 
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-emerald-500/50 transition shadow-lg">
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-emerald-500/50 transition">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Báo Cáo Thành Công</span>
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Submitted Reports</span>
           <span class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">🛡️</span>
         </div>
-        <div class="text-3xl font-black text-emerald-400 mt-3">{{ taskStore.totalSubmittedCount }}</div>
-        <p class="text-xs text-slate-500 mt-1">Đã xác nhận Meta Case ID</p>
+        <div class="text-3xl font-black text-emerald-400 mt-3">{{ jobStore.totalSubmittedCount }}</div>
+        <p class="text-xs text-slate-500 mt-1">Confirmed with Meta Case ID</p>
       </div>
 
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-sky-500/50 transition shadow-lg">
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-sky-500/50 transition">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Trạng Thái Slot</span>
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Active Queue Jobs</span>
           <span class="p-2 rounded-xl bg-sky-500/10 text-sky-400">⚡</span>
         </div>
-        <div class="text-2xl font-black text-sky-400 mt-3 flex items-center gap-2">
-          <span class="w-2.5 h-2.5 rounded-full" :class="taskStore.isSlotReady ? 'bg-emerald-400' : 'bg-amber-400'"></span>
-          <span>{{ taskStore.executionAvailability.reason || 'CHƯA KIỂM TRA' }}</span>
-        </div>
-        <p class="text-xs text-slate-500 mt-1">{{ taskStore.availabilityText }}</p>
+        <div class="text-3xl font-black text-sky-400 mt-3">{{ jobStore.activeJobsCount }}</div>
+        <p class="text-xs text-slate-500 mt-1">Running worker threads</p>
       </div>
 
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-amber-500/50 transition shadow-lg">
+      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-xl relative overflow-hidden group hover:border-amber-500/50 transition">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Proxies Hoạt Động</span>
+          <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Active Proxies</span>
           <span class="p-2 rounded-xl bg-amber-500/10 text-amber-400">🌐</span>
         </div>
         <div class="text-3xl font-black text-amber-400 mt-3">{{ proxyStore.activeProxiesCount }}</div>
@@ -48,58 +44,82 @@
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
       <!-- Left Column: Form & Live Logs (5 cols) -->
       <div class="lg:col-span-5 space-y-6">
-        <BrowserReadinessPanel />
-        <ReportTaskForm />
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2" role="group" aria-label="Chọn cách nhập đơn">
+          <button
+            type="button"
+            @click="importMode = false"
+            :aria-pressed="!importMode"
+            :class="!importMode
+              ? 'border-indigo-400 bg-indigo-600 text-white shadow-lg shadow-indigo-950/30'
+              : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-indigo-400 hover:bg-slate-700 hover:text-white'"
+            class="min-h-[48px] rounded-xl border px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          >
+            Nhập thủ công
+          </button>
+          <button
+            type="button"
+            @click="importMode = true"
+            :aria-pressed="importMode"
+            :class="importMode
+              ? 'border-indigo-400 bg-indigo-600 text-white shadow-lg shadow-indigo-950/30'
+              : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-indigo-400 hover:bg-slate-700 hover:text-white'"
+            class="min-h-[48px] rounded-xl border px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+          >
+            Chạy số lượng lớn
+          </button>
+        </div>
+        <BatchJobForm v-show="!importMode" />
+        <BulkOrderImport v-show="importMode" />
         <LogStreamViewer />
       </div>
 
-      <!-- Right Column: Task Selector & Task Detail Panel (7 cols) -->
+      <!-- Right Column: Job Selector & Live Table (7 cols) -->
       <div class="lg:col-span-7 space-y-6">
-        <!-- Task Picker Bar -->
-        <div class="flex items-center justify-between bg-slate-900/60 border border-slate-800 p-3 rounded-2xl backdrop-blur-xl">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 ml-2">Tác Vụ Gần Đây</span>
+        <!-- Job Picker Tabs -->
+        <div class="flex items-center justify-between bg-slate-900/60 border border-slate-800 p-3 rounded-2xl">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 ml-2">Active Jobs</span>
           <div class="flex items-center gap-2 overflow-x-auto max-w-md">
             <button
-              v-for="t in taskStore.tasks.slice(0, 5)"
-              :key="t.id"
-              @click="taskStore.selectTask(t.id)"
-              :class="taskStore.activeTaskId === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'"
+              v-for="job in jobStore.jobs.slice(0, 5)"
+              :key="job.id"
+              @click="jobStore.selectJob(job.id)"
+              :class="jobStore.selectedJob?.id === job.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'"
               class="px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition"
             >
-              {{ t.name }}
+              {{ job.name }}
             </button>
           </div>
         </div>
 
-        <!-- Task Detail Panel -->
-        <TaskDetailPanel />
+        <!-- Progress Table -->
+        <JobStatusTable />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { watch } from "vue";
-import ReportTaskForm from "../components/ReportTaskForm.vue";
-import TaskDetailPanel from "../components/TaskDetailPanel.vue";
+import { onMounted, ref } from "vue";
+import BatchJobForm from "../components/BatchJobForm.vue";
+import BulkOrderImport from "../components/BulkOrderImport.vue";
+import JobStatusTable from "../components/JobStatusTable.vue";
 import LogStreamViewer from "../components/LogStreamViewer.vue";
-import BrowserReadinessPanel from "../components/BrowserReadinessPanel.vue";
-import { useTaskStore } from "../stores/taskStore";
+import { useJobStore } from "../stores/jobStore";
 import { useProxyStore } from "../stores/proxyStore";
-import { useAuthStore } from "../stores/authStore.js";
 
-const taskStore = useTaskStore();
+const jobStore = useJobStore();
 const proxyStore = useProxyStore();
-const authStore = useAuthStore();
+const importMode = ref(false);
 
-watch(() => authStore.sessionContext, async session => {
-  if (!session || !authStore.isAuthenticated) return;
-  taskStore.initWebSocketListener();
+onMounted(async () => {
   await Promise.all([
-    taskStore.fetchTasks(),
-    taskStore.checkExecutionStatus(),
+    jobStore.fetchJobs(),
     proxyStore.fetchProxies(),
     proxyStore.fetchProfiles(),
   ]);
-}, {immediate: true});
+  if (jobStore.jobs.length > 0 && !jobStore.selectedJob) {
+    await jobStore.selectJob(jobStore.jobs[0].id);
+  }
+  jobStore.initWebSocketListener();
+});
 </script>

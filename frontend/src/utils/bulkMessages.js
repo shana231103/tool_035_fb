@@ -1,0 +1,41 @@
+// File: frontend/src/utils/bulkMessages.js
+const reasons = {
+  ORDER_FORMAT_INVALID: 'Sai cấu trúc đơn. Cần một URL gốc và danh sách URL vi phạm.',
+  ORDER_URL_INVALID: 'URL không hợp lệ hoặc chưa được hỗ trợ.',
+  TOO_MANY_TARGETS: 'Một đơn chỉ được có tối đa 30 URL vi phạm.',
+  DUPLICATE_ORDER: 'Đơn bị trùng. Kiểm tra và sửa trước khi chạy.',
+  MAIL_ROW_INVALID: 'Thông tin tài khoản mail không hợp lệ.',
+  MAIL_DUPLICATE: 'Tài khoản mail bị trùng.',
+  DUPLICATE_MAILBOX: 'Tài khoản mail bị trùng.',
+  INVALID_CREDENTIAL_FORMAT: 'Dòng mail phải có dạng Mail|Refresh_Token|Client_id.',
+  IMPORT_LIMIT_EXCEEDED: 'File vượt giới hạn kích thước hoặc số đơn, số tài khoản cho phép.',
+  FILE_TOO_LARGE: 'File vượt giới hạn 2 MiB.',
+  INVALID_ENCODING: 'Hãy lưu file bằng mã hóa UTF-8.',
+  MAIL_UNAVAILABLE: 'Mail chưa sẵn sàng. Kết nối lại đúng tài khoản rồi kiểm tra trước khi chạy.',
+  MAIL_BUSY: 'Đang chờ tác vụ khác dùng xong mail này.',
+  AUTH_REQUIRED: 'Cần kết nối lại tài khoản mail.',
+  DISCONNECTED: 'Tài khoản mail đã ngắt kết nối.',
+  MAPPING_INVALID: 'Mail chưa được xác minh hoặc kết nối đã thay đổi.',
+  CONFIGURATION_REQUIRED: 'Thông tin ứng dụng Microsoft chưa hợp lệ.',
+  APP_CONSENT_REQUIRED: 'Ứng dụng Microsoft chưa được cấp đủ quyền.',
+  MAIL_READ_REQUIRED: 'Tài khoản chưa cấp quyền đọc thư.',
+  GRAPH_ACCESS_DENIED: 'Microsoft từ chối quyền truy cập hộp thư.',
+  BUSY: 'Kết nối đang được một tác vụ khác sử dụng.',
+  STALE_PREVIEW: 'Dữ liệu đã thay đổi. Hãy xem trước và xác nhận lại.',
+  STALE_REVIEW: 'Trạng thái đã thay đổi. Hãy kiểm tra lại trước khi chạy.',
+  PROFILE_REVIEW_REQUIRED: 'Cần kiểm tra lại hồ sơ chủ sở hữu hoặc kết quả gửi chưa rõ.',
+  SUBMISSION_REVIEW_REQUIRED: 'Có đơn chưa rõ kết quả gửi. Cần kiểm tra trước khi chạy tiếp.',
+  IMPORT_KEY_CONFLICT: 'Mã lượt nhập đã dùng cho dữ liệu khác. Hãy tra cứu lượt nhập cũ.',
+  DUPLICATE_ACK_REQUIRED: 'Nội dung tương tự đã có. Hãy kiểm tra lịch sử và xác nhận lại.',
+  IMPORT_OUTCOME_UNKNOWN: 'Chưa rõ kết quả tạo đơn. Tra cứu cùng mã lượt nhập trước khi thử lại.',
+  ADMISSION_OUTCOME_UNKNOWN: 'Chưa xác định được trạng thái bắt đầu. Cần kiểm tra trước khi chạy tiếp.',
+  DRAIN_PENDING: 'Đang chờ xác nhận dọn tài nguyên của tác vụ trước.',
+  DRAIN_IDENTITY_UNKNOWN: 'Cần xác minh tài nguyên còn giữ từ phiên trước.',
+  NO_PENDING_TASKS: 'Không còn đơn chưa chạy. Chỉ thử lại các đơn lỗi đủ điều kiện.',
+  EXECUTION_FAILED: 'Thực thi bị gián đoạn. Kiểm tra kết quả từng đơn trước khi thử lại.',
+};
+
+export const bulkReasonMessage = reason => !reason ? '' : reasons[reason]
+  || 'Không thể hoàn tất bước này. Hãy kiểm tra dữ liệu hoặc kết nối mail.';
+export const bulkRowStatus = status => ({pending:'Đang chờ', connecting:'Đang kết nối',
+  ready:'Sẵn sàng', excluded:'Bị loại', cancelled:'Đã hủy'}[status] || 'Chưa xác định');

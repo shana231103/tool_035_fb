@@ -26,21 +26,20 @@ def parser():
 async def run(args):
     from app.core.config import settings
     from app.application.browser_readiness import BrowserCleanupUseCase
-    from app.application.unit_of_work import SystemPurpose
     from app.domain.exceptions.browser_errors import BrowserError
     from app.domain.value_objects.browser_status import ExternalCleanupConfirmation
     from app.infrastructure.persistence.database import db_manager
-    from app.infrastructure.persistence.schema_health import check_browser_schema
-    from app.infrastructure.persistence.sql_unit_of_work import SystemUnitOfWorkFactory
+    from app.infrastructure.persistence.schema_health import check_browser_schema, check_schema
+    from app.infrastructure.persistence.sql_unit_of_work import SqlAlchemyUnitOfWork
     from app.infrastructure.automation.adspower_settings import AdsPowerSettings
     from app.infrastructure.automation.adspower_session import build_service
     browser_settings = AdsPowerSettings(_env_file=settings.model_config.get("env_file"))
     browser_settings = browser_settings.model_copy(update={"initialize_identity": args.initialize})
-    system_factory = SystemUnitOfWorkFactory(db_manager)
-    service = build_service(
-        lambda: system_factory.open(SystemPurpose.PROVIDER_LEDGER, write=True), browser_settings,
-        maintenance=True, schema_check=lambda: check_browser_schema(db_manager),
-        read_factory=lambda: system_factory.open(SystemPurpose.PROVIDER_LEDGER, write=False))
+    async def maintenance_schema_check():
+        await check_schema(db_manager)
+        await check_browser_schema(db_manager)
+    service = build_service(lambda: SqlAlchemyUnitOfWork(db_manager), browser_settings,
+        maintenance=True, schema_check=maintenance_schema_check)
     db_manager.init(settings.database_url, echo=False)
     try:
         readiness = await service.bootstrap()

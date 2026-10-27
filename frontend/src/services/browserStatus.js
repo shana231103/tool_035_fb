@@ -5,19 +5,6 @@ const states = new Set(['READY', 'DEGRADED', 'BLOCKED', 'STARTING', 'CLOSED']);
 const cleanupStates = new Set(['CLEAR', 'PENDING', 'UNRESOLVED']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const browserUnavailable = 'Dịch vụ trình duyệt chưa sẵn sàng. Vui lòng liên hệ hỗ trợ.';
-export const browserReasonMessages = {
-  BROWSER_PROVIDER_UNAVAILABLE: 'Không thể kết nối với AdsPower (127.0.0.1:50325). Vui lòng mở AdsPower trước khi chạy.',
-  BROWSER_NOT_CONFIGURED: 'Chưa cấu hình AdsPower trong tệp .env (thiếu ADSPOWER_GROUP_ID).',
-  BROWSER_CDP_UNREACHABLE: 'Không thể kết nối CDP đến trình duyệt AdsPower.',
-  API_AUTH_REQUIRED: 'API Key AdsPower không hợp lệ hoặc đã hết hạn.',
-  BROWSER_CAPACITY_WAIT: 'Trình duyệt đang bận xử lý tác vụ khác.',
-  BROWSER_CLEANUP_PENDING: 'Đang dọn dẹp phiên trình duyệt trước. Vui lòng đợi trong giây lát.',
-};
-
-export function getBrowserErrorMessage(reason) {
-  return browserReasonMessages[reason] || browserUnavailable;
-}
-
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
 export function browserStatusView(data) {
@@ -27,7 +14,6 @@ export function browserStatusView(data) {
     charged: count(data?.charged), limit: count(data?.limit),
     pending: count(data?.pending), unknown: count(data?.unknown),
     startup_classified: data?.startup_classified === true, task: null,
-    safe_reason: typeof data?.safe_reason === 'string' ? data.safe_reason : null,
   };
   if (!view.startup_classified) view.can_start = false;
   const task = data?.task;

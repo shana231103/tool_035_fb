@@ -1,7 +1,6 @@
 # File: backend/app/domain/entities/owner_profile.py
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import UUID, uuid4
 from app.domain.value_objects.email_address import EmailAddress
 from app.domain.value_objects.enums import OwnerRole
@@ -23,7 +22,6 @@ class OwnerProfile:
     sender_name: str | None = None
     rights_jurisdiction: str | None = None
     owner_role: OwnerRole | None = None
-    operator_id: Optional[UUID] = None
 
     @classmethod
     def create(
@@ -37,7 +35,6 @@ class OwnerProfile:
         sender_name: str | None = None,
         rights_jurisdiction: str | None = None,
         owner_role: OwnerRole | None = None,
-        operator_id: Optional[UUID] = None,
     ) -> "OwnerProfile":
         clean_name = (full_name or "").strip()
         if not clean_name:
@@ -59,7 +56,6 @@ class OwnerProfile:
             sender_name=(sender_name or "").strip() or None,
             rights_jurisdiction=(rights_jurisdiction or "").strip() or None,
             owner_role=OwnerRole(owner_role) if owner_role else None,
-            operator_id=operator_id,
         )
 
     def validate_for_submission(self) -> None:

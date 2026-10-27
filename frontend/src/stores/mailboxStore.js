@@ -80,12 +80,6 @@ export const createMailboxStoreOptions = (api) => ({
       catch (error) { if (this.isCurrent(generation)) this.error = mailboxMessage(mailboxReason(error)); }
       finally { if (this.isCurrent(generation)) this.busy = false; }
     },
-    resetForAuth(epoch) {
-      this.closePanel();
-      this.connections = [];
-      this.capabilities = null;
-      this.cleanupIds = [];
-    },
   },
 });
 export const useMailboxStore = defineStore('mailboxes', createMailboxStoreOptions(mailboxApi));

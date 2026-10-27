@@ -29,22 +29,3 @@ async def join_worker(task: asyncio.Task) -> None:
         task.exception()
     if cancelled:
         raise asyncio.CancelledError
-
-
-def has_mail_read(result: dict) -> bool:
-    return "mail.read" in {
-        scope.casefold().removeprefix("https://graph.microsoft.com/")
-        for scope in result.get("scope", "").split()
-    }
-
-
-def clear_auth_state(state: AuthState, cache_factory) -> None:
-    try:
-        if state.app is not None:
-            for account in state.app.get_accounts():
-                state.app.remove_account(account)
-    finally:
-        state.account = None
-        state.flow.clear()
-        state.app = None
-        state.cache = cache_factory()

@@ -41,14 +41,8 @@ def main():
 
     os.chdir(work_dir)
 
-    from app.core.config import settings
-    if settings.operator_deployment_mode == "hosted" and not settings.operator_public_origin:
-        raise ValueError(
-            "OPERATOR_PUBLIC_ORIGIN must be configured when OPERATOR_DEPLOYMENT_MODE is 'hosted'."
-        )
-
     # The UI uses the operator's browser; automation uses AdsPower exclusively.
-    if (getattr(sys, "frozen", False) or os.getenv("LAUNCH_BROWSER", "0") == "1") and settings.operator_deployment_mode != "hosted":
+    if getattr(sys, "frozen", False) or os.getenv("LAUNCH_BROWSER", "0") == "1":
         ensure_playwright_driver()
         threading.Thread(target=_open_browser_when_ready, daemon=True).start()
 

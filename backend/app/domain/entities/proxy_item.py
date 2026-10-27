@@ -25,12 +25,6 @@ class ProxyItem:
     consecutive_failures: int = 0
     created_at: datetime = field(default_factory=_utc_now)
     last_checked_at: Optional[datetime] = None
-    deleted_at: Optional[datetime] = None
-    operator_id: Optional[UUID] = None
-
-    @property
-    def is_retired(self) -> bool:
-        return self.deleted_at is not None
 
     @classmethod
     def create(
@@ -42,7 +36,6 @@ class ProxyItem:
         username: Optional[str] = None,
         password: Optional[str] = None,
         proxy_id: Optional[UUID] = None,
-        operator_id: Optional[UUID] = None,
     ) -> "ProxyItem":
         if not host or not host.strip():
             raise InvalidProxyError("Proxy host is required.")
@@ -61,7 +54,6 @@ class ProxyItem:
             latency_ms=-1,
             consecutive_failures=0,
             created_at=_utc_now(),
-            operator_id=operator_id,
         )
 
     def mark_active(self, latency_ms: int) -> None:

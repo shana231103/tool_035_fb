@@ -22,10 +22,10 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { verificationApi } from '../services/api';
-import { useTaskStore } from '../stores/taskStore';
+import { useJobStore } from '../stores/jobStore';
 const props = defineProps({task:Object});
 defineEmits(['close']);
-const store = useTaskStore();
+const store = useJobStore();
 const error = ref(''), busy = ref(false), accepted = ref(false), now = ref(Date.now());
 const timer = setInterval(() => { now.value = Date.now(); }, 1000);
 onUnmounted(() => clearInterval(timer));
@@ -37,7 +37,7 @@ const progressText = computed(() => ({WAITING_EMAIL_SLOT:'Waiting for the email 
   SUBMITTING:'Email verification completed; report submission is in progress.', SUBMITTED:'Report receipt confirmed.'
 }[props.task?.status] || 'This verification attempt has ended. Review task state.'));
 watch(() => [props.task?.id,props.task?.verification?.challenge_id,props.task?.status], () => { accepted.value=false; error.value=''; });
-async function refresh() { if (store.activeTaskId) await store.refreshActiveTask(store.activeTaskId); }
+async function refresh() { if (store.selectedJob) await store.selectJob(store.selectedJob.id); }
 async function resend() {
   if (!canResend.value || busy.value) return;
   const task = props.task, challenge = task.verification.challenge_id;

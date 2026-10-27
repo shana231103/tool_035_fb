@@ -9,14 +9,13 @@ from app.domain.value_objects.browser_session import (
 
 
 class BrowserResourceBudget:
-    def __init__(self, ledger_factory, identity, policy, *, read_factory=None):
+    def __init__(self, ledger_factory, identity, policy):
         self.factory, self.identity, self.policy = ledger_factory, identity, policy
-        self.read_factory = read_factory if read_factory is not None else ledger_factory
         self.condition = asyncio.Condition()
         self.validated = False
 
     async def snapshot(self):
-        async with self.read_factory() as uow:
+        async with self.factory() as uow:
             return await uow.browser_sessions.read_bootstrap_snapshot()
 
     async def restore(self):
@@ -28,7 +27,7 @@ class BrowserResourceBudget:
         for row in snapshot.unclosed_records:
             self.identity.verify_record(row)
         self.validated = True
-        async with self.read_factory() as uow:
+        async with self.factory() as uow:
             return await uow.browser_sessions.summarize(self.identity.value.installation_id)
 
     async def get(self, operation_id):
@@ -41,7 +40,7 @@ class BrowserResourceBudget:
         return record
 
     async def task_records(self, task_id):
-        async with self.read_factory() as uow:
+        async with self.factory() as uow:
             return await uow.browser_sessions.get_unclosed_for_task(task_id)
 
     async def reserve(self, request):

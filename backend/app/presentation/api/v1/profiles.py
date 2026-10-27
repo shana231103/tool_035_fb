@@ -9,21 +9,8 @@ from app.application.dtos.profile_dtos import (
 from app.application.use_cases.manage_profiles import ManageProfilesUseCase
 from app.domain.exceptions.domain_exceptions import EntityNotFoundError
 from app.presentation.api.deps import get_manage_profiles_use_case
-from app.presentation.api.operator_auth import (
-    get_current_principal,
-    require_csrf,
-    require_session_context,
-)
 
-router = APIRouter(
-    prefix="/profiles",
-    tags=["Profiles"],
-    dependencies=[
-        Depends(get_current_principal),
-        Depends(require_csrf),
-        Depends(require_session_context),
-    ],
-)
+router = APIRouter(prefix="/profiles", tags=["Profiles"])
 
 
 @router.post("", response_model=ProfileResponseDTO, status_code=status.HTTP_201_CREATED)
